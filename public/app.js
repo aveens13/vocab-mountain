@@ -596,7 +596,7 @@ function setupVocabControls() {
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { closeModal(); return; }
-    if (e.key === ' ') { e.preventDefault(); modalOpen ? closeModal() : openModal(); return; }
+    if (e.key === ' ' || e.key === 'd' || e.key === 'D') { e.preventDefault(); modalOpen ? closeModal() : openModal(); return; }
     if (modalOpen) {
       if (e.key === 'g' || e.key === 'G') { markColor('green'); return; }
       if (e.key === 'r' || e.key === 'R') { markColor('red'); return; }
