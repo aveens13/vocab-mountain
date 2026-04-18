@@ -458,17 +458,14 @@ const RAW_GROUPS = [
 ];
 
 // ── FIREBASE BOOTSTRAP ────────────────────────────────────────────────────────
-// Config is fetched from a serverless function — never hardcoded here.
 let db, auth, currentUser, userFeatureFlags;
 
 async function bootstrap() {
   try {
-    // 1. Fetch Firebase config from our secure serverless function
     const res = await fetch('/api/firebase-config');
     if (!res.ok) throw new Error('Could not load app config');
     const firebaseConfig = await res.json();
 
-    // 2. Dynamically load Firebase SDK
     const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
     const { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } =
       await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
@@ -479,14 +476,11 @@ async function bootstrap() {
     auth = getAuth(app);
     db = getFirestore(app);
 
-    // Store Firestore helpers globally
     window._fs = { doc, getDoc, setDoc, collection, getDocs, updateDoc };
     window._auth = { signInWithEmailAndPassword, signOut, onAuthStateChanged };
 
-    // 3. Wire up auth screen
     setupAuthUI();
 
-    // 4. Listen for auth state
     onAuthStateChanged(auth, async (user) => {
       if (user) {
         currentUser = user;
@@ -496,7 +490,6 @@ async function bootstrap() {
         showScreen('auth');
       }
     });
-
   } catch (err) {
     console.error('Bootstrap error:', err);
     document.getElementById('app-loading').textContent = 'Failed to load. Please refresh.';
@@ -526,7 +519,6 @@ function setupAuthUI() {
 
   btnEl.addEventListener('click', doSignIn);
   passEl.addEventListener('keydown', e => { if (e.key === 'Enter') doSignIn(); });
-
   document.getElementById('signout-btn').addEventListener('click', () => window._auth.signOut(auth));
   document.getElementById('signout-btn-blocked').addEventListener('click', () => window._auth.signOut(auth));
 }
@@ -548,13 +540,10 @@ async function loadUserAndStart(user) {
   document.getElementById('user-email-display').textContent = user.email;
 
   try {
-    // Fetch feature flags for this user from Firestore
-    const { doc, getDoc } = window._fs;
+    const { doc, getDoc, setDoc } = window._fs;
     const flagsDoc = await getDoc(doc(db, 'users', user.uid));
 
     if (!flagsDoc.exists()) {
-      // First time user — create default flags (all features on)
-      const { setDoc } = window._fs;
       await setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         features: { vocabmountain: true, dailyprogress: true },
@@ -573,21 +562,13 @@ async function loadUserAndStart(user) {
       return;
     }
 
-    // Set up nav tabs based on feature flags
     setupNavTabs(hasVocab, hasDaily);
-
-    // Load progress from Firestore
     await loadProgressFromFirestore();
 
-    // Start on the first available feature
-    if (hasVocab) {
-      showTab('vocab');
-    } else {
-      showTab('daily');
-    }
+    if (hasVocab) showTab('vocab');
+    else showTab('daily');
 
     showScreen('main');
-
   } catch (err) {
     console.error('Load user error:', err);
     document.getElementById('app-loading').textContent = 'Error loading your profile. Please refresh.';
@@ -596,9 +577,9 @@ async function loadUserAndStart(user) {
 
 // ── SCREEN MANAGEMENT ─────────────────────────────────────────────────────────
 function showScreen(screen) {
-  document.getElementById('app-loading').style.display = screen === 'loading' ? 'flex' : 'none';
-  document.getElementById('auth-screen').style.display  = screen === 'auth' ? 'flex' : 'none';
-  document.getElementById('main-app').style.display     = screen === 'main' ? 'block' : 'none';
+  document.getElementById('app-loading').style.display     = screen === 'loading' ? 'flex' : 'none';
+  document.getElementById('auth-screen').style.display     = screen === 'auth'    ? 'flex' : 'none';
+  document.getElementById('main-app').style.display        = screen === 'main'    ? 'block': 'none';
   document.getElementById('feature-blocked').style.display = screen === 'blocked' ? 'flex' : 'none';
 }
 
@@ -608,11 +589,7 @@ function setupNavTabs(hasVocab, hasDaily) {
   const vocabTab = document.querySelector('[data-tab="vocab"]');
   const dailyTab = document.querySelector('[data-tab="daily"]');
 
-  // Only show tabs if user has both features
-  if (hasVocab && hasDaily) {
-    navTabs.style.display = 'flex';
-  }
-
+  if (hasVocab && hasDaily) navTabs.style.display = 'flex';
   if (!hasVocab) vocabTab.style.display = 'none';
   if (!hasDaily) dailyTab.style.display = 'none';
 
@@ -626,29 +603,38 @@ function showTab(tab) {
   document.getElementById('vocab-view').style.display = tab === 'vocab' ? 'block' : 'none';
   document.getElementById('daily-view').style.display = tab === 'daily' ? 'block' : 'none';
 
-  // Show topbar controls only for vocab tab
-  const vocabControls = ['groupSlider', 'sliderVal', 'shuffleAll', 'resetAll', 'saveProgress', 'dirtyDot', 'stats'];
   const sliderWrap = document.querySelector('.slider-wrap');
-  const keysHint = document.querySelector('.keys-hint');
-  const isVocab = tab === 'vocab';
+  const keysHint   = document.querySelector('.keys-hint');
+  const isVocab    = tab === 'vocab';
   if (sliderWrap) sliderWrap.style.display = isVocab ? 'flex' : 'none';
-  if (keysHint) keysHint.style.display = isVocab ? 'flex' : 'none';
+  if (keysHint)   keysHint.style.display   = isVocab ? 'flex' : 'none';
   ['shuffleAll', 'resetAll', 'saveProgress', 'dirtyDot', 'stats'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = isVocab ? '' : 'none';
   });
 
-  if (tab === 'daily') renderDailyProgress();
+  if (tab === 'daily') renderDailyTable();
 }
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 const COLS = 6;
 let maxGroup = 6;
 let groups = [];
+
+// FIX: cellColors is now keyed by "GroupName::word" (stable across shuffles)
+// e.g. "Group 1::abound" = "green"
 let cellColors = {};
+
 let sel = { col: 0, row: 0 };
 let modalOpen = false;
 let isDirty = false;
+
+// Daily progress: keyed by date string "YYYY-MM-DD"
+// Each value: { greDone, skillsDone, greNotes, skillsNotes, effortScore }
+let dailyData = {};
+let dailyTitle = 'Daily Progress Tracker';
+let dailyViewYear = new Date().getFullYear();
+let dailyViewMonth = new Date().getMonth(); // 0-indexed
 
 function shuffle(arr) {
   const a = [...arr];
@@ -659,6 +645,14 @@ function shuffle(arr) {
   return a;
 }
 
+// ── COLOR KEY HELPERS ─────────────────────────────────────────────────────────
+// Keys are stable "GroupName::word" — survive shuffle reordering
+function colorKey(gIdx, rowIdx) {
+  const group = groups[gIdx];
+  const word  = group.words[rowIdx];
+  return `${group.name}::${word.w}`;
+}
+
 // ── FIRESTORE PERSISTENCE ─────────────────────────────────────────────────────
 async function loadProgressFromFirestore() {
   if (!currentUser) return;
@@ -666,10 +660,17 @@ async function loadProgressFromFirestore() {
     const { doc, getDoc } = window._fs;
     const snap = await getDoc(doc(db, 'progress', currentUser.uid));
     const saved = snap.exists() ? snap.data() : null;
+
+    if (saved) {
+      dailyData  = saved.dailyData  || {};
+      dailyTitle = saved.dailyTitle || 'Daily Progress Tracker';
+      const titleEl = document.getElementById('daily-title-input');
+      if (titleEl) titleEl.value = dailyTitle;
+    }
+
     initVocabState(saved);
-    renderDailyProgress();
   } catch (e) {
-    console.warn('Could not load progress, using defaults:', e);
+    console.warn('Could not load progress:', e);
     initVocabState(null);
   }
 }
@@ -682,8 +683,8 @@ async function saveProgressToFirestore() {
     cellColors,
     groupWords: groups.map(g => ({ name: g.name, wordOrder: g.words.map(w => w.w) })),
     savedAt: new Date().toISOString(),
-    // Record today's stats for daily progress
-    dailyLog: buildDailyLog(),
+    dailyData,
+    dailyTitle,
   };
   try {
     const { doc, setDoc } = window._fs;
@@ -694,10 +695,7 @@ async function saveProgressToFirestore() {
     const btn = document.getElementById('saveProgress');
     btn.textContent = '✓ Saved';
     btn.classList.add('saved');
-    setTimeout(() => {
-      btn.textContent = '💾 Save';
-      btn.classList.remove('saved');
-    }, 1800);
+    setTimeout(() => { btn.textContent = '💾 Save'; btn.classList.remove('saved'); }, 1800);
   } catch (e) {
     console.error('Save failed:', e);
     setSyncStatus('save failed', 3000);
@@ -711,58 +709,180 @@ function setSyncStatus(msg, clearAfterMs) {
   if (clearAfterMs) setTimeout(() => { el.textContent = ''; }, clearAfterMs);
 }
 
-// ── DAILY LOG ─────────────────────────────────────────────────────────────────
-function buildDailyLog() {
-  let green = 0, red = 0, total = 0;
-  groups.forEach((g, gi) => g.words.forEach((_, ri) => {
-    total++;
-    const k = `${gi}-${ri}`;
-    if (cellColors[k] === 'green') green++;
-    else if (cellColors[k] === 'red') red++;
-  }));
-  const today = new Date().toISOString().slice(0, 10);
-  return { date: today, green, red, total };
+// ── DAILY PROGRESS TABLE ──────────────────────────────────────────────────────
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAY_ABBR    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function renderDailyTable() {
+  if (!userFeatureFlags?.dailyprogress) return;
+
+  // Update month label
+  document.getElementById('current-month-label').textContent =
+    `${MONTH_NAMES[dailyViewMonth].slice(0,3)} ${dailyViewYear}`;
+
+  const tbody  = document.getElementById('dp-tbody');
+  const today  = new Date();
+  const todayStr = fmtDate(today);
+  tbody.innerHTML = '';
+
+  // How many days in this month?
+  const daysInMonth = new Date(dailyViewYear, dailyViewMonth + 1, 0).getDate();
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date    = new Date(dailyViewYear, dailyViewMonth, d);
+    const dateStr = fmtDate(date);
+    const dayName = DAY_ABBR[date.getDay()];
+    const isPast   = dateStr < todayStr;
+    const isToday  = dateStr === todayStr;
+    const isFuture = dateStr > todayStr;
+
+    const row = dailyData[dateStr] || { greDone: false, skillsDone: false, greNotes: '', skillsNotes: '', effortScore: '' };
+    const bothDone    = row.greDone && row.skillsDone;
+    const completedIcon = bothDone ? '✅' : '❌';
+
+    const tr = document.createElement('tr');
+    if (isToday)  tr.classList.add('today-row');
+    if (isFuture) tr.classList.add('future-row');
+
+    // Date cell
+    const tdDate = document.createElement('td');
+    tdDate.innerHTML = `<span class="dp-date">${formatDisplayDate(date)} <span style="color:var(--muted);font-size:10px">${dayName}</span></span>`;
+    tr.appendChild(tdDate);
+
+    // GRE Done checkbox
+    tr.appendChild(makeCheckTd(dateStr, 'greDone', row.greDone));
+
+    // Skills Done checkbox
+    tr.appendChild(makeCheckTd(dateStr, 'skillsDone', row.skillsDone));
+
+    // GRE Notes
+    tr.appendChild(makeNotesTd(dateStr, 'greNotes', row.greNotes, 'Add GRE notes...'));
+
+    // Skills Notes
+    tr.appendChild(makeNotesTd(dateStr, 'skillsNotes', row.skillsNotes, 'Add skills notes...'));
+
+    // Effort Score
+    const tdEffort = document.createElement('td');
+    tdEffort.className = 'dp-effort';
+    const effortInput = document.createElement('input');
+    effortInput.type = 'number';
+    effortInput.min = '0';
+    effortInput.max = '10';
+    effortInput.value = row.effortScore || '';
+    effortInput.placeholder = '—';
+    effortInput.addEventListener('change', () => {
+      ensureDayRow(dateStr);
+      dailyData[dateStr].effortScore = effortInput.value;
+      updateCompletedCell(tr, dateStr);
+    });
+    effortInput.addEventListener('blur', () => {
+      ensureDayRow(dateStr);
+      dailyData[dateStr].effortScore = effortInput.value;
+      saveProgressToFirestore(); // auto-save on blur
+    });
+    tdEffort.appendChild(effortInput);
+    tr.appendChild(tdEffort);
+
+    // Completed icon
+    const tdComp = document.createElement('td');
+    tdComp.className = 'dp-completed';
+    tdComp.textContent = completedIcon;
+    tr.appendChild(tdComp);
+
+    tbody.appendChild(tr);
+  }
+
+  // Wire up month nav and title (only once)
+  setupDailyControls();
 }
 
-function renderDailyProgress() {
-  if (!userFeatureFlags?.dailyprogress) return;
-  const grid = document.getElementById('daily-grid');
-  if (!grid) return;
+function makeCheckTd(dateStr, field, checked) {
+  const td = document.createElement('td');
+  td.className = 'dp-check';
+  const icon = document.createElement('span');
+  icon.textContent = checked ? '☑' : '☐';
+  icon.style.cursor = 'pointer';
+  icon.style.fontSize = '18px';
+  icon.style.userSelect = 'none';
+  icon.addEventListener('click', () => {
+    ensureDayRow(dateStr);
+    dailyData[dateStr][field] = !dailyData[dateStr][field];
+    icon.textContent = dailyData[dateStr][field] ? '☑' : '☐';
+    const tr = td.parentElement;
+    updateCompletedCell(tr, dateStr);
+    saveProgressToFirestore(); // auto-save immediately on checkbox click
+  });
+  td.appendChild(icon);
+  return td;
+}
 
-  // Read today's stats from current state
-  let green = 0, red = 0, total = 0;
-  groups.forEach((g, gi) => g.words.forEach((_, ri) => {
-    total++;
-    const k = `${gi}-${ri}`;
-    if (cellColors[k] === 'green') green++;
-    else if (cellColors[k] === 'red') red++;
-  }));
+function makeNotesTd(dateStr, field, value, placeholder) {
+  const td = document.createElement('td');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'dp-notes';
+  input.value = value || '';
+  input.placeholder = placeholder;
+  input.addEventListener('input', () => {
+    ensureDayRow(dateStr);
+    dailyData[dateStr][field] = input.value;
+    markDirty();
+  });
+  input.addEventListener('blur', () => {
+    if (isDirty) saveProgressToFirestore();
+  });
+  td.appendChild(input);
+  return td;
+}
 
-  const today = new Date().toISOString().slice(0, 10);
-  const pct = total ? Math.round(((green + red) / total) * 100) : 0;
+function updateCompletedCell(tr, dateStr) {
+  const row = dailyData[dateStr] || {};
+  const bothDone = row.greDone && row.skillsDone;
+  const compCell = tr.querySelector('.dp-completed');
+  if (compCell) compCell.textContent = bothDone ? '✅' : '❌';
+}
 
-  grid.innerHTML = `
-    <div class="daily-card">
-      <div class="date">Today · ${today}</div>
-      <div class="score">${green + red}<span style="font-size:12px;color:var(--muted)">/${total}</span></div>
-      <div class="sub">reviewed · ${pct}%</div>
-    </div>
-    <div class="daily-card">
-      <div class="date">Known ✓</div>
-      <div class="score" style="color:var(--green-text)">${green}</div>
-      <div class="sub">marked green</div>
-    </div>
-    <div class="daily-card">
-      <div class="date">Learning ✗</div>
-      <div class="score" style="color:var(--red-text)">${red}</div>
-      <div class="sub">marked red</div>
-    </div>
-    <div class="daily-card">
-      <div class="date">Groups shown</div>
-      <div class="score">${maxGroup}</div>
-      <div class="sub">of ${RAW_GROUPS.length}</div>
-    </div>
-  `;
+function ensureDayRow(dateStr) {
+  if (!dailyData[dateStr]) {
+    dailyData[dateStr] = { greDone: false, skillsDone: false, greNotes: '', skillsNotes: '', effortScore: '' };
+  }
+}
+
+function fmtDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function formatDisplayDate(d) {
+  return `${MONTH_NAMES[d.getMonth()].slice(0,3)} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+let dailyControlsSetup = false;
+function setupDailyControls() {
+  if (dailyControlsSetup) return;
+  dailyControlsSetup = true;
+
+  document.getElementById('prevMonth').addEventListener('click', () => {
+    dailyViewMonth--;
+    if (dailyViewMonth < 0) { dailyViewMonth = 11; dailyViewYear--; }
+    renderDailyTable();
+  });
+
+  document.getElementById('nextMonth').addEventListener('click', () => {
+    dailyViewMonth++;
+    if (dailyViewMonth > 11) { dailyViewMonth = 0; dailyViewYear++; }
+    renderDailyTable();
+  });
+
+  document.getElementById('daily-title-input').addEventListener('input', (e) => {
+    dailyTitle = e.target.value;
+    markDirty();
+  });
+  document.getElementById('daily-title-input').addEventListener('blur', () => {
+    if (isDirty) saveProgressToFirestore();
+  });
 }
 
 // ── INIT VOCAB STATE ──────────────────────────────────────────────────────────
@@ -778,6 +898,7 @@ function initVocabState(savedState) {
 
 function loadGroups(savedState) {
   const rawSlice = RAW_GROUPS.slice(0, maxGroup);
+
   if (savedState) {
     groups = rawSlice.map((g, gi) => {
       const saved = savedState.groupWords && savedState.groupWords[gi];
@@ -795,11 +916,10 @@ function loadGroups(savedState) {
   } else {
     groups = rawSlice.map(g => ({ name: g.name, words: [...g.words] }));
   }
+
+  // FIX: restore cellColors from saved state (they're already word-keyed)
   cellColors = savedState ? (savedState.cellColors || {}) : {};
-  Object.keys(cellColors).forEach(k => {
-    const gi = parseInt(k.split('-')[0]);
-    if (gi >= maxGroup) delete cellColors[k];
-  });
+
   sel = { col: 0, row: 0 };
   isDirty = false;
   updateDirtyDot();
@@ -812,6 +932,7 @@ function render() {
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
   const numChunks = Math.ceil(groups.length / COLS);
+
   for (let chunk = 0; chunk < numChunks; chunk++) {
     const chunkGroups = groups.slice(chunk * COLS, (chunk + 1) * COLS);
     if (chunk > 0) {
@@ -822,16 +943,19 @@ function render() {
     }
     const row = document.createElement('div');
     row.className = 'grid-row';
+
     chunkGroups.forEach((group, ci) => {
       const gIdx = chunk * COLS + ci;
-      const col = document.createElement('div');
+      const col  = document.createElement('div');
       col.className = 'group-col';
+
       const hdr = document.createElement('div');
       hdr.className = 'group-header';
       hdr.innerHTML = `${group.name} <span class="shuffle-icon">⇄</span>`;
-      hdr.title = 'Click to shuffle this group (S)';
+      hdr.title = 'Click to shuffle this group';
       hdr.addEventListener('click', () => shuffleGroup(gIdx));
       col.appendChild(hdr);
+
       group.words.forEach((item, rowIdx) => {
         const cell = document.createElement('div');
         cell.className = 'word-cell';
@@ -839,9 +963,12 @@ function render() {
         cell.dataset.row = rowIdx;
         cell.textContent = item.w;
         cell.title = item.w;
-        const colorKey = `${gIdx}-${rowIdx}`;
-        if (cellColors[colorKey]) cell.classList.add(cellColors[colorKey]);
+
+        // FIX: use word-keyed color, not position-keyed
+        const ck = colorKey(gIdx, rowIdx);
+        if (cellColors[ck]) cell.classList.add(cellColors[ck]);
         if (sel.col === gIdx && sel.row === rowIdx) cell.classList.add('selected');
+
         cell.addEventListener('click', () => {
           sel = { col: gIdx, row: rowIdx };
           renderCells();
@@ -849,21 +976,24 @@ function render() {
         });
         col.appendChild(cell);
       });
+
       row.appendChild(col);
     });
     grid.appendChild(row);
   }
+
   updateStats();
   scrollToSelected();
 }
 
 function renderCells() {
   document.querySelectorAll('.word-cell').forEach(cell => {
-    const gIdx = +cell.dataset.col;
+    const gIdx   = +cell.dataset.col;
     const rowIdx = +cell.dataset.row;
-    const colorKey = `${gIdx}-${rowIdx}`;
+    // FIX: use word-keyed color
+    const ck = colorKey(gIdx, rowIdx);
     cell.className = 'word-cell';
-    if (cellColors[colorKey]) cell.classList.add(cellColors[colorKey]);
+    if (cellColors[ck]) cell.classList.add(cellColors[ck]);
     if (sel.col === gIdx && sel.row === rowIdx) cell.classList.add('selected');
   });
   updateStats();
@@ -879,9 +1009,9 @@ function updateStats() {
   let green = 0, red = 0, total = 0;
   groups.forEach((g, gi) => g.words.forEach((_, ri) => {
     total++;
-    const k = `${gi}-${ri}`;
-    if (cellColors[k] === 'green') green++;
-    else if (cellColors[k] === 'red') red++;
+    const ck = colorKey(gi, ri);
+    if (cellColors[ck] === 'green') green++;
+    else if (cellColors[ck] === 'red') red++;
   }));
   document.getElementById('stats').innerHTML =
     `<span class="g">✓${green}</span> <span class="r">✗${red}</span> / ${total}`;
@@ -891,9 +1021,9 @@ function updateStats() {
 function move(dir) {
   const numCols = groups.length;
   let { col, row } = sel;
-  if (dir === 'up') row = row > 0 ? row - 1 : groups[col].words.length - 1;
-  else if (dir === 'down') row = row < groups[col].words.length - 1 ? row + 1 : 0;
-  else if (dir === 'left') { col = col > 0 ? col - 1 : numCols - 1; row = Math.min(row, groups[col].words.length - 1); }
+  if (dir === 'up')    row = row > 0 ? row - 1 : groups[col].words.length - 1;
+  else if (dir === 'down')  row = row < groups[col].words.length - 1 ? row + 1 : 0;
+  else if (dir === 'left')  { col = col > 0 ? col - 1 : numCols - 1; row = Math.min(row, groups[col].words.length - 1); }
   else if (dir === 'right') { col = col < numCols - 1 ? col + 1 : 0; row = Math.min(row, groups[col].words.length - 1); }
   sel = { col, row };
   renderCells();
@@ -901,8 +1031,9 @@ function move(dir) {
 
 // ── COLOR ─────────────────────────────────────────────────────────────────────
 function markColor(color) {
-  const key = `${sel.col}-${sel.row}`;
-  cellColors[key] = cellColors[key] === color ? '' : color;
+  // FIX: store by word key — color sticks to the word, not the slot
+  const ck = colorKey(sel.col, sel.row);
+  cellColors[ck] = cellColors[ck] === color ? '' : color;
   markDirty();
   renderCells();
   if (modalOpen) updateModal();
@@ -910,16 +1041,15 @@ function markColor(color) {
 
 // ── SHUFFLE ───────────────────────────────────────────────────────────────────
 function shuffleGroup(gIdx) {
+  // FIX: colors are word-keyed, so no color cleanup needed on shuffle —
+  // they travel with the words automatically via colorKey()
   groups[gIdx].words = shuffle(groups[gIdx].words);
-  groups[gIdx].words.forEach((_, ri) => delete cellColors[`${gIdx}-${ri}`]);
   markDirty();
   render();
 }
+
 function shuffleAll() {
-  groups.forEach((g, gi) => {
-    g.words = shuffle(g.words);
-    g.words.forEach((_, ri) => delete cellColors[`${gi}-${ri}`]);
-  });
+  groups.forEach(g => { g.words = shuffle(g.words); });
   markDirty();
   render();
 }
@@ -930,22 +1060,26 @@ function openModal() {
   updateModal();
   document.getElementById('overlay').classList.add('show');
 }
+
 function updateModal() {
   const group = groups[sel.col];
-  const item = group.words[sel.row];
-  const key = `${sel.col}-${sel.row}`;
-  const color = cellColors[key] || '';
-  document.getElementById('modal-word').textContent = item.w;
+  const item  = group.words[sel.row];
+  const ck    = colorKey(sel.col, sel.row);
+  const color = cellColors[ck] || '';
+
+  document.getElementById('modal-word').textContent  = item.w;
   document.getElementById('modal-group').textContent = `${group.name} · word ${sel.row + 1} of ${group.words.length}`;
+
   const lines = item.m.split('\n');
-  let html = lines.length > 1
+  document.getElementById('modal-meaning').innerHTML = lines.length > 1
     ? '<ol>' + lines.map(l => `<li>${l.replace(/^\d+\.\s*/, '')}</li>`).join('') + '</ol>'
     : `<p>${item.m}</p>`;
-  document.getElementById('modal-meaning').innerHTML = html;
+
   document.getElementById('modal-word').style.color =
     color === 'green' ? 'var(--green-text)' :
     color === 'red'   ? 'var(--red-text)'   : 'var(--accent)';
 }
+
 function closeModal() {
   modalOpen = false;
   document.getElementById('overlay').classList.remove('show');
@@ -961,7 +1095,7 @@ function updateDirtyDot() {
   if (dot) dot.classList.toggle('dirty', isDirty);
 }
 
-// ── CONTROLS SETUP (called once after state loads) ────────────────────────────
+// ── CONTROLS SETUP ────────────────────────────────────────────────────────────
 let controlsSetup = false;
 function setupVocabControls() {
   if (controlsSetup) return;
@@ -991,23 +1125,26 @@ function setupVocabControls() {
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { closeModal(); return; }
-    if (e.key === ' ' || e.key === 'd' || e.key === 'D') { e.preventDefault(); modalOpen ? closeModal() : openModal(); return; }
+    if (e.key === ' ' || e.key === 'd' || e.key === 'D') {
+      e.preventDefault();
+      modalOpen ? closeModal() : openModal();
+      return;
+    }
     if (modalOpen) {
       if (e.key === 'g' || e.key === 'G') { markColor('green'); return; }
       if (e.key === 'r' || e.key === 'R') { markColor('red'); return; }
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { move('down'); return; }
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { move('up'); return; }
+      if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { move('up');   return; }
       return;
     }
-    if (e.key === 'ArrowUp') { e.preventDefault(); move('up'); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); move('down'); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); move('left'); }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); move('up'); }
+    else if (e.key === 'ArrowDown')  { e.preventDefault(); move('down'); }
+    else if (e.key === 'ArrowLeft')  { e.preventDefault(); move('left'); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); move('right'); }
     else if (e.key === 'g' || e.key === 'G') markColor('green');
     else if (e.key === 'r' || e.key === 'R') markColor('red');
   });
 
-  // Auto-save on page hide
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && isDirty) saveProgressToFirestore();
   });
@@ -1015,4 +1152,3 @@ function setupVocabControls() {
 
 // ── KICK OFF ──────────────────────────────────────────────────────────────────
 bootstrap();
-f
