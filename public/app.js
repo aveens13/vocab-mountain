@@ -716,74 +716,75 @@ const DAY_ABBR    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 function renderDailyTable() {
   if (!userFeatureFlags?.dailyprogress) return;
 
-  // Update month label
   document.getElementById('current-month-label').textContent =
-    `${MONTH_NAMES[dailyViewMonth].slice(0,3)} ${dailyViewYear}`;
+    `${MONTH_NAMES[dailyViewMonth]} ${dailyViewYear}`;
 
-  const tbody  = document.getElementById('dp-tbody');
-  const today  = new Date();
+  const tbody    = document.getElementById('dp-tbody');
+  const today    = new Date();
   const todayStr = fmtDate(today);
   tbody.innerHTML = '';
 
-  // How many days in this month?
   const daysInMonth = new Date(dailyViewYear, dailyViewMonth + 1, 0).getDate();
 
   for (let d = 1; d <= daysInMonth; d++) {
     const date    = new Date(dailyViewYear, dailyViewMonth, d);
     const dateStr = fmtDate(date);
-    const dayName = DAY_ABBR[date.getDay()];
-    const isPast   = dateStr < todayStr;
+    const dayIdx  = date.getDay();
+    const dayName = DAY_ABBR[dayIdx];
     const isToday  = dateStr === todayStr;
     const isFuture = dateStr > todayStr;
+    const isWeekend = dayIdx === 0 || dayIdx === 6;
 
-    const row = dailyData[dateStr] || { greDone: false, skillsDone: false, greNotes: '', skillsNotes: '', effortScore: '' };
-    const bothDone    = row.greDone && row.skillsDone;
-    const oneDone     = row.greDone || row.skillsDone;
+    const row = dailyData[dateStr] || { greDone:false, skillsDone:false, greNotes:'', skillsNotes:'', effortScore:'' };
+    const bothDone = row.greDone && row.skillsDone;
+    const oneDone  = row.greDone || row.skillsDone;
 
     const tr = document.createElement('tr');
     if (isToday)  tr.classList.add('today-row');
     if (isFuture) tr.classList.add('future-row');
 
-    // Date cell
+    // ── Date ──
     const tdDate = document.createElement('td');
-    tdDate.innerHTML = `<span class="dp-date">${formatDisplayDate(date)} <span class="day-name">${dayName}</span></span>`;
+    const daySpanClass = isWeekend ? 'dp-date-day weekend' : 'dp-date-day';
+    tdDate.innerHTML = `
+      <span class="dp-date">
+        <span class="dp-date-num">${MONTH_NAMES[dailyViewMonth].slice(0,3)} ${d}</span>
+        <span class="${daySpanClass}">${dayName}</span>
+      </span>`;
     tr.appendChild(tdDate);
 
-    // GRE Done checkbox
-    tr.appendChild(makeCheckTd(dateStr, 'greDone', row.greDone));
+    // ── GRE checkbox ──
+    tr.appendChild(makeCheckTd(dateStr, 'greDone', row.greDone, tr));
 
-    // Skills Done checkbox
-    tr.appendChild(makeCheckTd(dateStr, 'skillsDone', row.skillsDone));
+    // ── Skills checkbox ──
+    tr.appendChild(makeCheckTd(dateStr, 'skillsDone', row.skillsDone, tr));
 
-    // GRE Notes
-    tr.appendChild(makeNotesTd(dateStr, 'greNotes', row.greNotes, 'Add GRE notes...'));
+    // ── GRE Notes ──
+    tr.appendChild(makeNotesTd(dateStr, 'greNotes', row.greNotes, 'Add GRE notes…', date));
 
-    // Skills Notes
-    tr.appendChild(makeNotesTd(dateStr, 'skillsNotes', row.skillsNotes, 'Add skills notes...'));
+    // ── Skills Notes ──
+    tr.appendChild(makeNotesTd(dateStr, 'skillsNotes', row.skillsNotes, 'Add skills notes…', date));
 
-    // Effort Score
+    // ── Effort (plain text) ──
     const tdEffort = document.createElement('td');
     tdEffort.className = 'dp-effort';
-    const effortInput = document.createElement('input');
-    effortInput.type = 'number';
-    effortInput.min = '0';
-    effortInput.max = '10';
-    effortInput.value = row.effortScore || '';
-    effortInput.placeholder = '—';
-    effortInput.addEventListener('change', () => {
+    const effortEl = document.createElement('input');
+    effortEl.type = 'text';
+    effortEl.className = 'dp-effort-input';
+    effortEl.value = row.effortScore || '';
+    effortEl.placeholder = '—';
+    effortEl.addEventListener('input', () => {
       ensureDayRow(dateStr);
-      dailyData[dateStr].effortScore = effortInput.value;
-      updateCompletedCell(tr, dateStr);
+      dailyData[dateStr].effortScore = effortEl.value;
+      markDirty();
     });
-    effortInput.addEventListener('blur', () => {
-      ensureDayRow(dateStr);
-      dailyData[dateStr].effortScore = effortInput.value;
-      saveProgressToFirestore();
+    effortEl.addEventListener('blur', () => {
+      if (isDirty) saveProgressToFirestore();
     });
-    tdEffort.appendChild(effortInput);
+    tdEffort.appendChild(effortEl);
     tr.appendChild(tdEffort);
 
-    // Completed status pill
+    // ── Status pill ──
     const tdComp = document.createElement('td');
     tdComp.className = 'dp-completed';
     tdComp.innerHTML = makeStatusPillHTML(bothDone, oneDone);
@@ -792,22 +793,18 @@ function renderDailyTable() {
     tbody.appendChild(tr);
   }
 
-  // Wire up month nav and title (only once)
   setupDailyControls();
 }
 
-function makeCheckTd(dateStr, field, checked) {
+function makeCheckTd(dateStr, field, checked, tr) {
   const td = document.createElement('td');
   td.className = 'dp-check';
   const box = document.createElement('div');
-  box.className = 'dp-check-box' + (checked ? ' checked' : '');
-  box.title = checked ? 'Click to uncheck' : 'Click to check';
+  box.className = 'notion-checkbox' + (checked ? ' checked' : '');
   box.addEventListener('click', () => {
     ensureDayRow(dateStr);
     dailyData[dateStr][field] = !dailyData[dateStr][field];
     box.classList.toggle('checked', dailyData[dateStr][field]);
-    box.title = dailyData[dateStr][field] ? 'Click to uncheck' : 'Click to check';
-    const tr = td.parentElement;
     updateCompletedCell(tr, dateStr);
     saveProgressToFirestore();
   });
@@ -815,56 +812,238 @@ function makeCheckTd(dateStr, field, checked) {
   return td;
 }
 
-function makeNotesTd(dateStr, field, value, placeholder) {
+function makeNotesTd(dateStr, field, value, placeholder, dateObj) {
   const td = document.createElement('td');
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'dp-notes';
-  input.value = value || '';
-  input.placeholder = placeholder;
-  input.addEventListener('input', () => {
-    ensureDayRow(dateStr);
-    dailyData[dateStr][field] = input.value;
-    markDirty();
+  td.className = 'dp-notes-cell';
+
+  // Parse stored notes string into array of lines
+  const lines = parseNoteLines(value);
+  const count = lines.filter(l => l.trim()).length;
+
+  const preview = document.createElement('div');
+  preview.className = 'dp-notes-preview' + (count ? ' has-notes' : ' empty');
+
+  if (count) {
+    // Show first line preview + count badge
+    const firstLine = lines.find(l => l.trim()) || '';
+    preview.innerHTML = `
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${escHtml(firstLine)}</span>
+      ${count > 1 ? `<span class="dp-notes-count">+${count - 1}</span>` : ''}`;
+  } else {
+    preview.textContent = placeholder;
+  }
+
+  td.appendChild(preview);
+
+  td.addEventListener('click', () => {
+    openNotesModal(dateStr, field, dateObj, field === 'greNotes' ? 'GRE Notes' : 'Skills Notes');
   });
-  input.addEventListener('blur', () => {
-    if (isDirty) saveProgressToFirestore();
-  });
-  td.appendChild(input);
   return td;
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function parseNoteLines(raw) {
+  if (!raw) return [''];
+  // Support both newline-separated and "1. 2." numbered list storage
+  if (raw.includes('\n')) return raw.split('\n');
+  // Legacy single-line — just return as one item
+  return [raw];
+}
+
+function serializeNoteLines(lines) {
+  return lines.join('\n');
 }
 
 function updateCompletedCell(tr, dateStr) {
   const row = dailyData[dateStr] || {};
   const compCell = tr.querySelector('.dp-completed');
   if (!compCell) return;
-  const bothDone = row.greDone && row.skillsDone;
-  const oneDone  = row.greDone || row.skillsDone;
-  compCell.innerHTML = makeStatusPillHTML(bothDone, oneDone);
+  compCell.innerHTML = makeStatusPillHTML(row.greDone && row.skillsDone, row.greDone || row.skillsDone);
 }
 
 function makeStatusPillHTML(bothDone, oneDone) {
-  if (bothDone)  return '<span class="dp-status-pill done">✓ Done</span>';
-  if (oneDone)   return '<span class="dp-status-pill partial">◑ Partial</span>';
-  return '<span class="dp-status-pill not-done">✕ None</span>';
+  if (bothDone) return '<span class="dp-status-pill done">✓ Done</span>';
+  if (oneDone)  return '<span class="dp-status-pill partial">◑ Partial</span>';
+  return '<span class="dp-status-pill none">—</span>';
 }
 
 function ensureDayRow(dateStr) {
   if (!dailyData[dateStr]) {
-    dailyData[dateStr] = { greDone: false, skillsDone: false, greNotes: '', skillsNotes: '', effortScore: '' };
+    dailyData[dateStr] = { greDone:false, skillsDone:false, greNotes:'', skillsNotes:'', effortScore:'' };
   }
 }
 
 function fmtDate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 function formatDisplayDate(d) {
   return `${MONTH_NAMES[d.getMonth()].slice(0,3)} ${d.getDate()}, ${d.getFullYear()}`;
 }
+
+// ── NOTES MODAL ───────────────────────────────────────────────────────────────
+let notesModalState = { dateStr: null, field: null };
+
+function openNotesModal(dateStr, field, dateObj, label) {
+  notesModalState = { dateStr, field };
+  ensureDayRow(dateStr);
+
+  document.getElementById('notes-modal-title').textContent = label;
+  document.getElementById('notes-modal-date').textContent  =
+    formatDisplayDate(dateObj).toUpperCase();
+
+  const raw   = dailyData[dateStr][field] || '';
+  const lines = parseNoteLines(raw);
+
+  buildNoteEditor(lines);
+  document.getElementById('notes-overlay').classList.add('show');
+
+  // Focus first input
+  const first = document.querySelector('#notes-editor .note-input');
+  if (first) { first.focus(); const len = first.value.length; first.setSelectionRange(len, len); }
+}
+
+function buildNoteEditor(lines) {
+  const editor = document.getElementById('notes-editor');
+  editor.innerHTML = '';
+
+  // Ensure at least one line
+  const arr = lines.length ? lines : [''];
+
+  arr.forEach((text, i) => addNoteLine(editor, text, i + 1));
+
+  // Always add a blank line at the end if last line has content
+  const last = arr[arr.length - 1];
+  if (last && last.trim()) addNoteLine(editor, '', arr.length + 1);
+}
+
+function addNoteLine(editor, text, num) {
+  const line = document.createElement('div');
+  line.className = 'note-line';
+
+  const bullet = document.createElement('span');
+  bullet.className = 'note-bullet';
+  bullet.textContent = `${num}.`;
+
+  const input = document.createElement('textarea');
+  input.className = 'note-input';
+  input.value = text;
+  input.rows = 1;
+  input.placeholder = num === 1 ? 'Start typing…' : '';
+
+  // Auto-resize
+  function resize() {
+    input.style.height = 'auto';
+    input.style.height = input.scrollHeight + 'px';
+  }
+  input.addEventListener('input', () => { resize(); renumberLines(editor); });
+  requestAnimationFrame(resize);
+
+  // Enter → new line below
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const allInputs = [...editor.querySelectorAll('.note-input')];
+      const idx = allInputs.indexOf(input);
+
+      // Insert new empty line after current
+      const newLine = document.createElement('div');
+      newLine.className = 'note-line';
+      const nb = document.createElement('span');
+      nb.className = 'note-bullet';
+      const ni = document.createElement('textarea');
+      ni.className = 'note-input';
+      ni.rows = 1;
+      ni.addEventListener('input', () => { autoResize(ni); renumberLines(editor); });
+      ni.addEventListener('keydown', e2 => handleNoteKey(e2, editor, ni));
+      newLine.appendChild(nb);
+      newLine.appendChild(ni);
+
+      // Insert after current line div
+      const currentLineDivs = editor.querySelectorAll('.note-line');
+      const currentDiv = currentLineDivs[idx];
+      currentDiv.after(newLine);
+      renumberLines(editor);
+      ni.focus();
+    }
+
+    if (e.key === 'Backspace' && input.value === '') {
+      e.preventDefault();
+      const allLines = [...editor.querySelectorAll('.note-line')];
+      if (allLines.length > 1) {
+        const allInputs2 = [...editor.querySelectorAll('.note-input')];
+        const idx2 = allInputs2.indexOf(input);
+        const prev = allInputs2[idx2 - 1];
+        line.remove();
+        renumberLines(editor);
+        if (prev) { prev.focus(); const l = prev.value.length; prev.setSelectionRange(l, l); }
+      }
+    }
+
+    // Cmd/Ctrl+Enter → save and close
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      saveNotesModal();
+    }
+  });
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+  function handleNoteKey() {} // stub — events already attached above
+
+  line.appendChild(bullet);
+  line.appendChild(input);
+  editor.appendChild(line);
+  requestAnimationFrame(resize);
+}
+
+function renumberLines(editor) {
+  const bullets = editor.querySelectorAll('.note-bullet');
+  bullets.forEach((b, i) => { b.textContent = `${i + 1}.`; });
+}
+
+function saveNotesModal() {
+  const { dateStr, field } = notesModalState;
+  if (!dateStr || !field) return;
+
+  const inputs = [...document.querySelectorAll('#notes-editor .note-input')];
+  const lines  = inputs.map(i => i.value).filter((v, idx, arr) => {
+    // Remove trailing empty lines but keep middle ones
+    if (idx === arr.length - 1 && !v.trim()) return false;
+    return true;
+  });
+
+  ensureDayRow(dateStr);
+  dailyData[dateStr][field] = serializeNoteLines(lines);
+  markDirty();
+  saveProgressToFirestore();
+
+  // Refresh the notes cell preview in the table
+  const allNotesCells = document.querySelectorAll('.dp-notes-cell');
+  // Re-render the table to update previews
+  renderDailyTable();
+
+  closeNotesModal();
+}
+
+function closeNotesModal() {
+  document.getElementById('notes-overlay').classList.remove('show');
+  notesModalState = { dateStr: null, field: null };
+}
+
+// Wire up notes modal buttons once
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('notes-modal-close').addEventListener('click', closeNotesModal);
+  document.getElementById('notes-modal-save').addEventListener('click', saveNotesModal);
+  document.getElementById('notes-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('notes-overlay')) closeNotesModal();
+  });
+});
 
 let dailyControlsSetup = false;
 function setupDailyControls() {
