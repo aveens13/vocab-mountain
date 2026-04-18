@@ -610,7 +610,6 @@ function setupVocabControls() {
     else if (e.key === 'ArrowRight') { e.preventDefault(); move('right'); }
     else if (e.key === 'g' || e.key === 'G') markColor('green');
     else if (e.key === 'r' || e.key === 'R') markColor('red');
-    else if (e.key === 's' || e.key === 'S') shuffleGroup(sel.col);
   });
 
   // Auto-save on page hide
