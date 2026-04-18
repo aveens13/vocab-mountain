@@ -738,7 +738,7 @@ function renderDailyTable() {
 
     const row = dailyData[dateStr] || { greDone: false, skillsDone: false, greNotes: '', skillsNotes: '', effortScore: '' };
     const bothDone    = row.greDone && row.skillsDone;
-    const completedIcon = bothDone ? '✅' : '❌';
+    const oneDone     = row.greDone || row.skillsDone;
 
     const tr = document.createElement('tr');
     if (isToday)  tr.classList.add('today-row');
@@ -746,7 +746,7 @@ function renderDailyTable() {
 
     // Date cell
     const tdDate = document.createElement('td');
-    tdDate.innerHTML = `<span class="dp-date">${formatDisplayDate(date)} <span style="color:var(--muted);font-size:10px">${dayName}</span></span>`;
+    tdDate.innerHTML = `<span class="dp-date">${formatDisplayDate(date)} <span class="day-name">${dayName}</span></span>`;
     tr.appendChild(tdDate);
 
     // GRE Done checkbox
@@ -778,15 +778,15 @@ function renderDailyTable() {
     effortInput.addEventListener('blur', () => {
       ensureDayRow(dateStr);
       dailyData[dateStr].effortScore = effortInput.value;
-      saveProgressToFirestore(); // auto-save on blur
+      saveProgressToFirestore();
     });
     tdEffort.appendChild(effortInput);
     tr.appendChild(tdEffort);
 
-    // Completed icon
+    // Completed status pill
     const tdComp = document.createElement('td');
     tdComp.className = 'dp-completed';
-    tdComp.textContent = completedIcon;
+    tdComp.innerHTML = makeStatusPillHTML(bothDone, oneDone);
     tr.appendChild(tdComp);
 
     tbody.appendChild(tr);
@@ -799,20 +799,19 @@ function renderDailyTable() {
 function makeCheckTd(dateStr, field, checked) {
   const td = document.createElement('td');
   td.className = 'dp-check';
-  const icon = document.createElement('span');
-  icon.textContent = checked ? '☑' : '☐';
-  icon.style.cursor = 'pointer';
-  icon.style.fontSize = '18px';
-  icon.style.userSelect = 'none';
-  icon.addEventListener('click', () => {
+  const box = document.createElement('div');
+  box.className = 'dp-check-box' + (checked ? ' checked' : '');
+  box.title = checked ? 'Click to uncheck' : 'Click to check';
+  box.addEventListener('click', () => {
     ensureDayRow(dateStr);
     dailyData[dateStr][field] = !dailyData[dateStr][field];
-    icon.textContent = dailyData[dateStr][field] ? '☑' : '☐';
+    box.classList.toggle('checked', dailyData[dateStr][field]);
+    box.title = dailyData[dateStr][field] ? 'Click to uncheck' : 'Click to check';
     const tr = td.parentElement;
     updateCompletedCell(tr, dateStr);
-    saveProgressToFirestore(); // auto-save immediately on checkbox click
+    saveProgressToFirestore();
   });
-  td.appendChild(icon);
+  td.appendChild(box);
   return td;
 }
 
@@ -837,9 +836,17 @@ function makeNotesTd(dateStr, field, value, placeholder) {
 
 function updateCompletedCell(tr, dateStr) {
   const row = dailyData[dateStr] || {};
-  const bothDone = row.greDone && row.skillsDone;
   const compCell = tr.querySelector('.dp-completed');
-  if (compCell) compCell.textContent = bothDone ? '✅' : '❌';
+  if (!compCell) return;
+  const bothDone = row.greDone && row.skillsDone;
+  const oneDone  = row.greDone || row.skillsDone;
+  compCell.innerHTML = makeStatusPillHTML(bothDone, oneDone);
+}
+
+function makeStatusPillHTML(bothDone, oneDone) {
+  if (bothDone)  return '<span class="dp-status-pill done">✓ Done</span>';
+  if (oneDone)   return '<span class="dp-status-pill partial">◑ Partial</span>';
+  return '<span class="dp-status-pill not-done">✕ None</span>';
 }
 
 function ensureDayRow(dateStr) {
@@ -1124,12 +1131,21 @@ function setupVocabControls() {
   });
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal(); return; }
+    // Never intercept if typing in any input/textarea
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    // Only handle vocab-specific keys when vocab tab is visible
+    const vocabView = document.getElementById('vocab-view');
+    const onVocabTab = vocabView && vocabView.style.display !== 'none';
+
+    if (e.key === 'Escape') { if (onVocabTab) closeModal(); return; }
     if (e.key === ' ' || e.key === 'd' || e.key === 'D') {
+      if (!onVocabTab) return; // don't intercept space/d/g on daily tab
       e.preventDefault();
       modalOpen ? closeModal() : openModal();
       return;
     }
+    if (!onVocabTab) return; // all remaining keys are vocab-only
     if (modalOpen) {
       if (e.key === 'g' || e.key === 'G') { markColor('green'); return; }
       if (e.key === 'r' || e.key === 'R') { markColor('red'); return; }
