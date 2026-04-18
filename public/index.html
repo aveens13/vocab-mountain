@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vocab Mountain</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1a1a1f;
+    --surface: #22222a;
+    --border: #33333e;
+    --text: #e8e8f0;
+    --muted: #7a7a90;
+    --accent: #5b8af0;
+    --green-bg: #1a2e1a;
+    --green-border: #2d6e2d;
+    --green-text: #6fcf6f;
+    --red-bg: #2e1a1a;
+    --red-border: #6e2d2d;
+    --red-text: #cf6f6f;
+    --selected-bg: #2a2a3a;
+    --selected-border: #5b8af0;
+    --cell-h: 32px;
+    --header-h: 36px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── AUTH SCREEN ── */
+  #auth-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  #auth-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 40px 44px;
+    width: 100%;
+    max-width: 400px;
+  }
+  #auth-box h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  #auth-box p {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 28px;
+  }
+  .auth-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 14px;
+  }
+  .auth-field label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .auth-field input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .auth-field input:focus { border-color: var(--accent); }
+  #auth-submit {
+    width: 100%;
+    margin-top: 10px;
+    padding: 10px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  #auth-submit:hover { opacity: 0.85; }
+  #auth-submit:disabled { opacity: 0.4; cursor: default; }
+  #auth-error {
+    font-size: 11px;
+    color: var(--red-text);
+    margin-top: 12px;
+    min-height: 16px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  #auth-loading {
+    text-align: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    padding: 12px 0 0;
+  }
+
+  /* ── FEATURE BLOCKED ── */
+  #feature-blocked {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    flex-direction: column;
+    gap: 14px;
+    padding: 40px;
+    text-align: center;
+  }
+  #feature-blocked h2 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+  #feature-blocked p {
+    font-size: 13px;
+    color: var(--muted);
+    max-width: 360px;
+    line-height: 1.6;
+  }
+
+  /* ── TOPBAR ── */
+  #topbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  #topbar h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .slider-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 200px;
+  }
+  .slider-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  #groupSlider {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  #groupSlider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+  #sliderVal {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    min-width: 70px;
+  }
+  .keys-hint { display: flex; gap: 8px; flex-wrap: wrap; }
+  .key-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 2px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .key-badge span { color: var(--text); }
+
+  /* user info */
+  #user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  #signout-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 3px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    transition: all 0.15s;
+  }
+  #signout-btn:hover { color: var(--red-text); border-color: var(--red-border); }
+
+  /* ── GRID ── */
+  #grid-container { padding: 14px 24px 60px; overflow-x: auto; }
+  #grid { display: flex; flex-direction: column; gap: 0; width: 100%; }
+  .grid-row { display: flex; gap: 0; margin-bottom: 28px; width: 100%; }
+  .grid-row-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0 0 24px 0;
+    opacity: 0.5;
+    display: none;
+  }
+  .group-col {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-width: 0;
+    border-right: 1px solid var(--border);
+  }
+  .group-col:last-child { border-right: none; }
+  .group-header {
+    height: var(--header-h);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s;
+    gap: 5px;
+  }
+  .group-header:hover { color: var(--text); }
+  .shuffle-icon { opacity: 0.5; font-size: 9px; }
+  .group-header:hover .shuffle-icon { opacity: 1; }
+  .word-cell {
+    height: var(--cell-h);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    margin: 0 4px 1px;
+    transition: background 0.1s, border-color 0.1s;
+    user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+  }
+  .word-cell:hover { background: var(--selected-bg); }
+  .word-cell.selected { background: var(--selected-bg); border-color: var(--selected-border); color: #fff; }
+  .word-cell.green { background: var(--green-bg); border-color: var(--green-border); color: var(--green-text); }
+  .word-cell.red { background: var(--red-bg); border-color: var(--red-border); color: var(--red-text); }
+  .word-cell.green.selected { border-color: #4fc04f; }
+  .word-cell.red.selected { border-color: #cf4f4f; }
+
+  /* ── MODAL ── */
+  #overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+  }
+  #overlay.show { display: flex; }
+  #modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 32px 36px;
+    max-width: 520px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    position: relative;
+  }
+  #modal-word {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 6px;
+    letter-spacing: 0.03em;
+  }
+  #modal-group {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 20px;
+  }
+  #modal-meaning { font-size: 15px; line-height: 1.7; color: var(--text); }
+  #modal-meaning ol { padding-left: 18px; }
+  #modal-meaning li { margin-bottom: 6px; }
+  #modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .modal-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 7px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--muted);
+    transition: all 0.15s;
+  }
+  .modal-btn:hover { color: var(--text); border-color: var(--muted); }
+  .modal-btn.green-btn { border-color: var(--green-border); color: var(--green-text); }
+  .modal-btn.red-btn { border-color: var(--red-border); color: var(--red-text); }
+  .modal-btn.close-btn { margin-left: auto; }
+
+  /* ── BUTTONS ── */
+  .topbar-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  #shuffleAll:hover { color: var(--text); border-color: var(--muted); }
+  #resetAll:hover { color: var(--red-text); border-color: var(--red-border); }
+  #saveProgress:hover { color: var(--green-text); border-color: var(--green-border); }
+  #saveProgress.saved { color: var(--green-text); border-color: var(--green-border); }
+
+  .progress-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-left: 4px;
+    vertical-align: middle;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .progress-dot.dirty { opacity: 1; }
+
+  #stats {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  #stats .g { color: var(--green-text); }
+  #stats .r { color: var(--red-text); }
+
+  /* ── DAILY PROGRESS ── */
+  #daily-panel {
+    display: none;
+    padding: 24px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  #daily-panel h2 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .daily-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+  }
+  .daily-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+  }
+  .daily-card .date {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .daily-card .score {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .daily-card .sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ── NAV TABS ── */
+  #nav-tabs {
+    display: none;
+    gap: 4px;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .nav-tab {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 8px 14px;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s;
+  }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .nav-tab:hover { color: var(--text); }
+
+  /* ── SYNC INDICATOR ── */
+  #sync-status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    padding: 4px 8px;
+  }
+
+  /* ── SPINNER ── */
+  #app-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="app-loading">initializing...</div>
+
+<!-- Auth screen (shown before login) -->
+<div id="auth-screen" style="display:none">
+  <div id="auth-box">
+    <h1>⛰ Vocab Mountain</h1>
+    <p>Sign in to sync your progress across devices.</p>
+    <div class="auth-field">
+      <label>Email</label>
+      <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email">
+    </div>
+    <div class="auth-field">
+      <label>Password</label>
+      <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button id="auth-submit">Sign In</button>
+    <div id="auth-error"></div>
+    <div id="auth-loading" style="display:none">signing in...</div>
+  </div>
+</div>
+
+<!-- Feature blocked screen -->
+<div id="feature-blocked" style="display:none">
+  <h2>⛰ Vocab Mountain</h2>
+  <p>This feature isn't available for your account right now. Contact the admin if you think this is a mistake.</p>
+  <button id="signout-btn-blocked" style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:7px 16px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);">Sign Out</button>
+</div>
+
+<!-- Main app (hidden until auth + feature flags loaded) -->
+<div id="main-app" style="display:none">
+  <!-- Top bar -->
+  <div id="topbar">
+    <h1>⛰ Vocab Mountain</h1>
+    <div class="slider-wrap">
+      <span class="slider-label">Groups:</span>
+      <input type="range" id="groupSlider" min="1" max="32" value="6">
+      <span id="sliderVal">1–6</span>
+    </div>
+    <button id="shuffleAll" class="topbar-btn">⇄ Shuffle All</button>
+    <button id="resetAll" class="topbar-btn">↺ Reset Colors</button>
+    <button id="saveProgress" class="topbar-btn">💾 Save</button>
+    <span id="sync-status"></span>
+    <div id="stats">— / —</div>
+    <span class="progress-dot" id="dirtyDot" title="Unsaved changes"></span>
+    <div class="keys-hint">
+      <span class="key-badge">↑↓ <span>navigate</span></span>
+      <span class="key-badge">←→ <span>group</span></span>
+      <span class="key-badge">space <span>details</span></span>
+      <span class="key-badge">G <span>green</span></span>
+      <span class="key-badge">R <span>red</span></span>
+      <span class="key-badge">S <span>shuffle</span></span>
+    </div>
+    <div id="user-info">
+      <span id="user-email-display"></span>
+      <button id="signout-btn">sign out</button>
+    </div>
+  </div>
+
+  <!-- Nav tabs (shown if user has multiple features enabled) -->
+  <div id="nav-tabs">
+    <button class="nav-tab active" data-tab="vocab">Vocab Mountain</button>
+    <button class="nav-tab" data-tab="daily">Daily Progress</button>
+  </div>
+
+  <!-- Vocab Mountain view -->
+  <div id="vocab-view">
+    <div id="grid-container">
+      <div id="grid"></div>
+    </div>
+  </div>
+
+  <!-- Daily Progress view -->
+  <div id="daily-view" style="display:none">
+    <div id="daily-panel">
+      <h2>Daily Progress</h2>
+      <div class="daily-grid" id="daily-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Word modal -->
+<div id="overlay">
+  <div id="modal">
+    <div id="modal-word"></div>
+    <div id="modal-group"></div>
+    <div id="modal-meaning"></div>
+    <div id="modal-actions">
+      <button class="modal-btn green-btn" id="mGreen">G — Mark Green</button>
+      <button class="modal-btn red-btn" id="mRed">R — Mark Red</button>
+      <button class="modal-btn close-btn" id="mClose">ESC — Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

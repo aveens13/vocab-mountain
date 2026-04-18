@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vocab Mountain — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1a1a1f; --surface: #22222a; --border: #33333e;
+    --text: #e8e8f0; --muted: #7a7a90; --accent: #5b8af0;
+    --green-text: #6fcf6f; --green-border: #2d6e2d;
+    --red-text: #cf6f6f; --red-border: #6e2d2d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'IBM Plex Sans', sans-serif; min-height: 100vh; }
+
+  #topbar {
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    padding: 12px 24px; display: flex; align-items: center; gap: 16px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  #topbar h1 { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; }
+  .badge { font-family: 'IBM Plex Mono', monospace; font-size: 10px; background: #2a1a1a; border: 1px solid var(--red-border); color: var(--red-text); padding: 2px 8px; border-radius: 3px; }
+  #admin-email { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); margin-left: auto; }
+  #signout-btn { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 3px 9px; border-radius: 3px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--muted); transition: all 0.15s; }
+  #signout-btn:hover { color: var(--red-text); border-color: var(--red-border); }
+
+  #content { max-width: 860px; margin: 0 auto; padding: 28px 24px; }
+
+  .section-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* Add user form */
+  #add-user-form { display: flex; gap: 10px; margin-bottom: 32px; flex-wrap: wrap; }
+  #add-user-form input {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+    padding: 8px 12px; color: var(--text); font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; outline: none; flex: 1; min-width: 180px; transition: border-color 0.15s;
+  }
+  #add-user-form input:focus { border-color: var(--accent); }
+  #add-user-form button {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 8px 16px;
+    border-radius: 4px; cursor: pointer; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; transition: opacity 0.15s;
+  }
+  #add-user-form button:hover { opacity: 0.8; }
+  #add-user-form button:disabled { opacity: 0.4; cursor: default; }
+  #add-msg { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--green-text); margin-top: 6px; }
+
+  /* Users table */
+  #users-table { width: 100%; border-collapse: collapse; }
+  #users-table th {
+    font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase;
+    padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left;
+  }
+  #users-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  #users-table tr:last-child td { border-bottom: none; }
+  #users-table tr:hover td { background: #1e1e26; }
+
+  .user-email { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text); }
+  .user-id { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* Toggle switch */
+  .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+  .toggle { position: relative; width: 38px; height: 20px; cursor: pointer; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; inset: 0;
+    background: var(--border); border-radius: 20px; transition: background 0.2s;
+  }
+  .toggle-slider::before {
+    content: ''; position: absolute;
+    width: 14px; height: 14px; left: 3px; top: 3px;
+    background: var(--muted); border-radius: 50%; transition: transform 0.2s, background 0.2s;
+  }
+  .toggle input:checked + .toggle-slider { background: var(--green-border); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(18px); background: var(--green-text); }
+  .toggle-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); }
+
+  .loading { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); padding: 20px 0; }
+
+  /* Auth screen */
+  #auth-screen {
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+  }
+  #auth-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 36px 40px; width: 100%; max-width: 380px;
+  }
+  #auth-box h1 { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
+  #auth-box p { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+  .auth-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .auth-field label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .auth-field input { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 9px 12px; color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 13px; outline: none; }
+  .auth-field input:focus { border-color: var(--accent); }
+  #auth-submit { width: 100%; margin-top: 10px; padding: 10px; background: var(--accent); color: #fff; border: none; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; cursor: pointer; }
+  #auth-error { font-size: 11px; color: var(--red-text); margin-top: 10px; font-family: 'IBM Plex Mono', monospace; min-height: 16px; }
+  #app-loading { display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); letter-spacing: 0.08em; }
+</style>
+</head>
+<body>
+
+<div id="app-loading">initializing...</div>
+
+<div id="auth-screen" style="display:none">
+  <div id="auth-box">
+    <h1>⛰ Admin Panel</h1>
+    <p>Sign in with your admin account.</p>
+    <div class="auth-field"><label>Email</label><input type="email" id="auth-email" autocomplete="email"></div>
+    <div class="auth-field"><label>Password</label><input type="password" id="auth-password" autocomplete="current-password"></div>
+    <button id="auth-submit">Sign In</button>
+    <div id="auth-error"></div>
+  </div>
+</div>
+
+<div id="main-app" style="display:none">
+  <div id="topbar">
+    <h1>⛰ Vocab Mountain</h1>
+    <span class="badge">ADMIN</span>
+    <span id="admin-email"></span>
+    <button id="signout-btn">sign out</button>
+  </div>
+  <div id="content">
+    <p class="section-title">Add User</p>
+    <div id="add-user-form">
+      <input type="email" id="new-email" placeholder="user@example.com">
+      <input type="password" id="new-password" placeholder="Password (min 6 chars)">
+      <button id="add-user-btn">+ Create User</button>
+    </div>
+    <div id="add-msg"></div>
+
+    <p class="section-title" style="margin-top:32px">Users & Feature Flags</p>
+    <div id="users-loading" class="loading">loading users...</div>
+    <table id="users-table" style="display:none">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Vocab Mountain</th>
+          <th>Daily Progress</th>
+        </tr>
+      </thead>
+      <tbody id="users-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// IMPORTANT: The admin panel uses the Firebase Admin SDK via Netlify Functions
+// for creating users. For reading/writing feature flags, it uses Firestore directly
+// (same as the main app — admins are just users with admin: true in Firestore).
+
+const ADMIN_UID = ''; // Set this to your UID after first login (see SETUP.md)
+
+let db, auth, currentUser;
+
+async function bootstrap() {
+  try {
+    const res = await fetch('/api/firebase-config');
+    if (!res.ok) throw new Error('Config load failed');
+    const firebaseConfig = await res.json();
+
+    const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+    const { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } =
+      await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+    const { getFirestore, doc, getDoc, setDoc, collection, getDocs, updateDoc } =
+      await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+
+    const app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    window._fs = { doc, getDoc, setDoc, collection, getDocs, updateDoc };
+    window._authFns = { signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword };
+
+    setupAuth();
+
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        currentUser = user;
+        // Verify this user is marked as admin in Firestore
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (!snap.exists() || !snap.data().isAdmin) {
+          alert('Access denied. This account is not an admin.');
+          await signOut(auth);
+          return;
+        }
+        document.getElementById('admin-email').textContent = user.email;
+        showScreen('main');
+        loadUsers();
+        setupAddUser();
+      } else {
+        currentUser = null;
+        showScreen('auth');
+      }
+    });
+
+  } catch (err) {
+    document.getElementById('app-loading').textContent = 'Failed to initialize.';
+    console.error(err);
+  }
+}
+
+function showScreen(s) {
+  document.getElementById('app-loading').style.display  = s === 'loading' ? 'flex' : 'none';
+  document.getElementById('auth-screen').style.display  = s === 'auth' ? 'flex' : 'none';
+  document.getElementById('main-app').style.display     = s === 'main' ? 'block' : 'none';
+}
+
+function setupAuth() {
+  const emailEl = document.getElementById('auth-email');
+  const passEl  = document.getElementById('auth-password');
+  const errEl   = document.getElementById('auth-error');
+  const btnEl   = document.getElementById('auth-submit');
+  async function doLogin() {
+    errEl.textContent = '';
+    btnEl.disabled = true;
+    try {
+      await window._authFns.signInWithEmailAndPassword(auth, emailEl.value.trim(), passEl.value);
+    } catch (e) {
+      errEl.textContent = 'Login failed: ' + (e.message || e.code);
+      btnEl.disabled = false;
+    }
+  }
+  btnEl.addEventListener('click', doLogin);
+  passEl.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('signout-btn').addEventListener('click', () => window._authFns.signOut(auth));
+}
+
+async function loadUsers() {
+  const { collection, getDocs } = window._fs;
+  document.getElementById('users-loading').style.display = 'block';
+  document.getElementById('users-table').style.display = 'none';
+
+  const snap = await getDocs(collection(db, 'users'));
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = '';
+
+  snap.forEach(docSnap => {
+    const data = docSnap.data();
+    const uid = docSnap.id;
+    if (data.isAdmin) return; // skip admin rows
+
+    const features = data.features || {};
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <div class="user-email">${data.email || '—'}</div>
+        <div class="user-id">${uid}</div>
+      </td>
+      <td>
+        <label class="toggle" title="Toggle Vocab Mountain">
+          <input type="checkbox" ${features.vocabmountain ? 'checked' : ''} data-uid="${uid}" data-flag="vocabmountain">
+          <span class="toggle-slider"></span>
+        </label>
+      </td>
+      <td>
+        <label class="toggle" title="Toggle Daily Progress">
+          <input type="checkbox" ${features.dailyprogress ? 'checked' : ''} data-uid="${uid}" data-flag="dailyprogress">
+          <span class="toggle-slider"></span>
+        </label>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Wire up toggles
+  tbody.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const uid = cb.dataset.uid;
+      const flag = cb.dataset.flag;
+      const { doc, updateDoc } = window._fs;
+      try {
+        await updateDoc(doc(db, 'users', uid), { [`features.${flag}`]: cb.checked });
+      } catch (e) {
+        alert('Failed to update flag: ' + e.message);
+        cb.checked = !cb.checked; // revert
+      }
+    });
+  });
+
+  document.getElementById('users-loading').style.display = 'none';
+  document.getElementById('users-table').style.display = 'table';
+}
+
+function setupAddUser() {
+  const btn = document.getElementById('add-user-btn');
+  const msg = document.getElementById('add-msg');
+  btn.addEventListener('click', async () => {
+    const email = document.getElementById('new-email').value.trim();
+    const pass  = document.getElementById('new-password').value;
+    if (!email || !pass) { msg.textContent = 'Email and password are required.'; msg.style.color = 'var(--red-text)'; return; }
+    btn.disabled = true;
+    msg.textContent = 'Creating...';
+    msg.style.color = 'var(--muted)';
+    try {
+      // Create user via Netlify function (so we don't sign out the current admin)
+      const res = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await currentUser.getIdToken()}` },
+        body: JSON.stringify({ email, password: pass }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Unknown error');
+
+      // Write feature flags for new user
+      const { doc, setDoc } = window._fs;
+      await setDoc(doc(db, 'users', result.uid), {
+        email,
+        features: { vocabmountain: true, dailyprogress: true },
+        createdAt: new Date().toISOString(),
+        isAdmin: false,
+      });
+
+      msg.textContent = `✓ User ${email} created.`;
+      msg.style.color = 'var(--green-text)';
+      document.getElementById('new-email').value = '';
+      document.getElementById('new-password').value = '';
+      loadUsers(); // refresh table
+    } catch (e) {
+      msg.textContent = 'Error: ' + e.message;
+      msg.style.color = 'var(--red-text)';
+    }
+    btn.disabled = false;
+  });
+}
+
+bootstrap();
+</script>
+</body>
+</html>
