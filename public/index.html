@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Vocab Mountain</title>
+<title>Ascent</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -505,7 +505,7 @@
 <!-- Auth screen (shown before login) -->
 <div id="auth-screen" style="display:none">
   <div id="auth-box">
-    <h1>⛰ Vocab Mountain</h1>
+    <h1>⛰ Ascent</h1>
     <p>Sign in to sync your progress across devices.</p>
     <div class="auth-field">
       <label>Email</label>
@@ -523,7 +523,7 @@
 
 <!-- Feature blocked screen -->
 <div id="feature-blocked" style="display:none">
-  <h2>⛰ Vocab Mountain</h2>
+  <h2>Ascent</h2>
   <p>This feature isn't available for your account right now. Contact the admin if you think this is a mistake.</p>
   <button id="signout-btn-blocked" style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:7px 16px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);">Sign Out</button>
 </div>
@@ -532,7 +532,7 @@
 <div id="main-app" style="display:none">
   <!-- Top bar -->
   <div id="topbar">
-    <h1>⛰ Vocab Mountain</h1>
+    <h1>⛰ Ascent</h1>
     <div class="slider-wrap">
       <span class="slider-label">Groups:</span>
       <input type="range" id="groupSlider" min="1" max="32" value="6">
@@ -546,11 +546,10 @@
     <span class="progress-dot" id="dirtyDot" title="Unsaved changes"></span>
     <div class="keys-hint">
       <span class="key-badge">↑↓ <span>navigate</span></span>
-      <span class="key-badge">←→ <span>group</span></span>
+      <span class="key-badge">d<span>group</span></span>
       <span class="key-badge">space <span>details</span></span>
       <span class="key-badge">G <span>green</span></span>
       <span class="key-badge">R <span>red</span></span>
-      <span class="key-badge">S <span>shuffle</span></span>
     </div>
     <div id="user-info">
       <span id="user-email-display"></span>
