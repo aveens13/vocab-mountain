@@ -676,6 +676,9 @@ async function loadProgressFromFirestore() {
     }
 
     initVocabState(saved);
+    await loadVerbalHistory();
+    await loadQuestionBank();
+    updateBankStats();
   } catch (e) {
     console.warn('Could not load progress:', e);
     initVocabState(null);
@@ -2294,13 +2297,4 @@ function setupManualAddForm() {
     renderBankList(); updateBankStats();
     alert('Question saved to bank!');
   });
-}
-
-// ── PATCH: load question bank alongside progress ───────────────────────────────
-const _origLoadProgress2 = loadProgressFromFirestore;
-async function loadProgressFromFirestore() {
-  await _origLoadProgress2();
-  await loadVerbalHistory();
-  await loadQuestionBank();
-  updateBankStats();
 }
