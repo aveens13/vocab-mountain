@@ -31,7 +31,7 @@ exports.handler = async (event) => {
 
   try {
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -59,7 +59,7 @@ exports.handler = async (event) => {
     // Parse and validate the JSON
     let questions;
     try {
-      const cleaned = text.replace(/```json|```/g, '').trim();
+      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
       questions = JSON.parse(cleaned);
       if (!Array.isArray(questions)) questions = [questions];
     } catch (e) {
