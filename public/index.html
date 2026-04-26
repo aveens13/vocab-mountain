@@ -532,6 +532,356 @@
     cursor: pointer; transition: opacity 0.15s;
   }
   #notes-modal-save:hover { opacity: 0.85; }
+
+  /* ══════════════════════════════════════════════════
+     GRE VERBAL SECTION
+  ══════════════════════════════════════════════════ */
+
+  /* ── Hub ── */
+  #verbal-hub {
+    padding: 32px 24px 60px;
+    display: flex; justify-content: center;
+  }
+  .verbal-hub-inner { max-width: 780px; width: 100%; }
+  .verbal-hub-title {
+    font-size: 20px; font-weight: 600; color: var(--text);
+    margin-bottom: 4px;
+  }
+  .verbal-hub-sub { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+
+  /* Section type cards */
+  .verbal-type-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    margin-bottom: 28px;
+  }
+  .verbal-type-card {
+    background: var(--surface); border: 2px solid var(--border);
+    border-radius: 10px; padding: 20px 18px; cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .verbal-type-card:hover { border-color: var(--notion-blue); background: var(--surface-2); }
+  .verbal-type-card.selected { border-color: var(--notion-blue); background: var(--notion-blue-light); }
+  .vtc-icon {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    color: var(--notion-blue); letter-spacing: 0.08em;
+    background: var(--notion-blue-light); display: inline-block;
+    padding: 2px 8px; border-radius: 4px; margin-bottom: 10px;
+  }
+  .vtc-name { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+  .vtc-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  /* Options row */
+  .verbal-options-row {
+    display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .verbal-option-group { display: flex; flex-direction: column; gap: 8px; }
+  .vopt-label {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .vopt-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .vopt-pill {
+    font-family: var(--font-body); font-size: 12px; font-weight: 500;
+    padding: 5px 13px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--muted); transition: all 0.13s;
+  }
+  .vopt-pill:hover { color: var(--text); border-color: var(--muted-hover); }
+  .vopt-pill.active {
+    background: var(--notion-blue); border-color: var(--notion-blue);
+    color: #fff;
+  }
+
+  /* Start button */
+  .verbal-start-btn {
+    width: 100%; padding: 12px; border-radius: 8px; border: none;
+    background: var(--notion-blue); color: #fff;
+    font-family: var(--font-body); font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.15s; margin-bottom: 32px;
+  }
+  .verbal-start-btn:hover { opacity: 0.88; }
+  .verbal-start-btn:disabled { opacity: 0.35; cursor: default; }
+
+  /* History */
+  .verbal-history-title {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
+  }
+  .verbal-history-list { display: flex; flex-direction: column; gap: 6px; }
+  .vhist-row {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 7px; padding: 10px 14px; font-size: 12px;
+  }
+  .vhist-badge {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    color: var(--notion-blue); background: var(--notion-blue-light);
+    padding: 1px 7px; border-radius: 3px; flex-shrink: 0;
+  }
+  .vhist-score { font-weight: 600; color: var(--text); }
+  .vhist-meta { color: var(--muted); margin-left: auto; font-family: var(--font-mono); font-size: 10px; }
+
+  /* ── Session bar ── */
+  .vsess-bar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
+    padding: 10px 20px; gap: 12px; flex-wrap: wrap;
+  }
+  .vsess-bar-left { display: flex; align-items: center; gap: 10px; }
+  .vsess-type-badge {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    color: #fff; background: var(--notion-blue);
+    padding: 2px 9px; border-radius: 4px;
+  }
+  .vsess-qcount { font-size: 13px; font-weight: 500; color: var(--text-2); }
+  .vsess-bar-center {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  }
+  .vsess-timer-wrap { display: flex; align-items: center; gap: 4px; }
+  .vsess-timer-val { font-weight: 600; color: var(--text); min-width: 38px; }
+  .vsess-timer-val.urgent { color: var(--red-text); }
+  .vsess-sep { color: var(--border); }
+  .vsess-bar-right { display: flex; gap: 8px; }
+  .vsess-nav-btn {
+    font-family: var(--font-body); font-size: 12px; font-weight: 500;
+    padding: 5px 16px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-3);
+    color: var(--text-2); transition: all 0.13s;
+  }
+  .vsess-nav-btn:hover { background: var(--surface); color: var(--text); }
+  .vsess-nav-btn.primary { background: var(--notion-blue); border-color: var(--notion-blue); color: #fff; }
+  .vsess-nav-btn.primary:hover { opacity: 0.85; }
+  .vsess-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* ── Session body ── */
+  .vsess-body {
+    max-width: 760px; margin: 0 auto; padding: 28px 20px 20px;
+  }
+  .vsess-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 32px 36px; margin-bottom: 16px;
+    min-height: 200px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  }
+  .vsess-loading {
+    display: flex; align-items: center; gap: 14px;
+    color: var(--muted); font-size: 13px; justify-content: center;
+    padding: 40px 0;
+  }
+  .vsess-spinner {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid var(--border);
+    border-top-color: var(--notion-blue);
+    animation: spin 0.8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Question content */
+  .vsess-diff-badge {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+    padding: 2px 8px; border-radius: 3px; margin-bottom: 16px;
+    display: inline-block; letter-spacing: 0.06em;
+  }
+  .vsess-diff-badge.easy   { background: rgba(40,84,44,0.3); color: var(--green-text); }
+  .vsess-diff-badge.medium { background: var(--yellow-bg);   color: var(--yellow-text); }
+  .vsess-diff-badge.hard   { background: var(--red-bg);      color: var(--red-text); }
+
+  /* Passage text */
+  .vsess-passage {
+    font-size: 15px; line-height: 1.85; color: var(--text);
+    margin-bottom: 28px; font-family: var(--font-body);
+  }
+  .vsess-passage .blank-placeholder {
+    display: inline-block;
+    border-bottom: 2px solid var(--muted-hover);
+    min-width: 100px; color: transparent;
+    font-size: 13px; vertical-align: bottom;
+    margin: 0 3px;
+  }
+  .vsess-passage .blank-filled {
+    display: inline-block;
+    border-bottom: 2px solid var(--notion-blue);
+    color: var(--notion-blue); font-weight: 600;
+    min-width: 100px; text-align: center;
+    margin: 0 3px; vertical-align: bottom;
+    padding: 0 4px;
+  }
+
+  /* TC: blank columns */
+  .tc-blanks-grid {
+    display: flex; gap: 20px; flex-wrap: wrap; margin-top: 4px;
+  }
+  .tc-blank-col { flex: 1; min-width: 160px; }
+  .tc-blank-label {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    color: var(--text-2); letter-spacing: 0.06em; margin-bottom: 10px;
+    text-align: center;
+  }
+  .tc-choice {
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 14px; margin-bottom: 6px; cursor: pointer;
+    font-size: 13px; color: var(--text-2); background: var(--surface-2);
+    transition: all 0.13s; text-align: center;
+    font-family: var(--font-body);
+  }
+  .tc-choice:hover { border-color: var(--notion-blue); color: var(--text); background: var(--notion-blue-light); }
+  .tc-choice.selected { border-color: var(--notion-blue); background: var(--notion-blue-light); color: var(--text); font-weight: 500; }
+  .tc-choice.correct  { border-color: var(--green-border); background: var(--green-bg); color: var(--green-text); }
+  .tc-choice.wrong    { border-color: var(--red-border);   background: var(--red-bg);   color: var(--red-text); }
+  .tc-choice.reveal-correct { border-color: var(--green-border); background: var(--green-bg); color: var(--green-text); }
+  .tc-choice.disabled { cursor: default; }
+
+  /* SE: single column of 6 checkboxes */
+  .se-choices { margin-top: 8px; }
+  .se-choice {
+    display: flex; align-items: center; gap: 12px;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 16px; margin-bottom: 7px; cursor: pointer;
+    font-size: 13px; color: var(--text-2); background: var(--surface-2);
+    transition: all 0.13s; font-family: var(--font-body);
+  }
+  .se-choice:hover { border-color: var(--notion-blue); background: var(--notion-blue-light); color: var(--text); }
+  .se-choice.selected { border-color: var(--notion-blue); background: var(--notion-blue-light); color: var(--text); }
+  .se-choice.correct  { border-color: var(--green-border); background: var(--green-bg); color: var(--green-text); }
+  .se-choice.wrong    { border-color: var(--red-border);   background: var(--red-bg);   color: var(--red-text); }
+  .se-choice.reveal-correct { border-color: var(--green-border); background: var(--green-bg); color: var(--green-text); }
+  .se-choice.disabled { cursor: default; }
+  .se-choice-label {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    color: var(--muted); width: 18px; flex-shrink: 0;
+  }
+  .se-checkbox {
+    width: 16px; height: 16px; border-radius: 3px;
+    border: 1.5px solid var(--border); background: var(--surface-3);
+    flex-shrink: 0; transition: all 0.12s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .se-choice.selected .se-checkbox,
+  .se-choice.correct  .se-checkbox { background: var(--notion-blue); border-color: var(--notion-blue); color: #fff; font-size: 10px; }
+  .se-choice.correct  .se-checkbox { background: var(--green-border); border-color: var(--green-border); }
+  .se-hint {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    margin-top: 12px; letter-spacing: 0.04em;
+  }
+  .se-hint.maxed { color: var(--yellow-text); }
+
+  /* RC */
+  .rc-passage {
+    font-size: 14px; line-height: 1.9; color: var(--text-2);
+    background: var(--surface-3); border-radius: 6px; padding: 18px 20px;
+    margin-bottom: 24px; border: 1px solid var(--border-soft);
+    max-height: 260px; overflow-y: auto; font-family: var(--font-body);
+  }
+  .rc-q-label {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;
+  }
+  .rc-question-text { font-size: 14px; color: var(--text); margin-bottom: 16px; line-height: 1.6; }
+  .rc-choice {
+    display: flex; align-items: flex-start; gap: 12px;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 14px; margin-bottom: 7px; cursor: pointer;
+    font-size: 13px; color: var(--text-2); background: var(--surface-2);
+    transition: all 0.13s; font-family: var(--font-body);
+  }
+  .rc-choice:hover { border-color: var(--notion-blue); background: var(--notion-blue-light); color: var(--text); }
+  .rc-choice.selected { border-color: var(--notion-blue); background: var(--notion-blue-light); color: var(--text); }
+  .rc-choice.correct  { border-color: var(--green-border); background: var(--green-bg); color: var(--green-text); }
+  .rc-choice.wrong    { border-color: var(--red-border);   background: var(--red-bg);   color: var(--red-text); }
+  .rc-choice.reveal-correct { border-color: var(--green-border); background: var(--green-bg); color: var(--green-text); }
+  .rc-choice.disabled { cursor: default; }
+  .rc-choice-label { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--muted); flex-shrink: 0; width: 18px; }
+  .rc-qnav { display: flex; gap: 6px; margin-bottom: 16px; }
+  .rc-qnav-btn {
+    font-family: var(--font-mono); font-size: 11px; padding: 3px 10px;
+    border-radius: 4px; cursor: pointer; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--muted); transition: all 0.13s;
+  }
+  .rc-qnav-btn.active { background: var(--notion-blue); border-color: var(--notion-blue); color: #fff; }
+  .rc-qnav-btn.answered { border-color: var(--green-border); color: var(--green-text); }
+
+  /* Explanation */
+  .vsess-explanation {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px 22px; margin-top: 0;
+  }
+  .vsess-exp-header {
+    font-size: 14px; font-weight: 600; margin-bottom: 8px;
+  }
+  .vsess-exp-header.correct { color: var(--green-text); }
+  .vsess-exp-header.wrong   { color: var(--red-text); }
+  .vsess-exp-body { font-size: 13px; color: var(--text-2); line-height: 1.65; }
+
+  /* Progress dots */
+  .vsess-bottom-bar {
+    position: sticky; bottom: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface-2); border-top: 1px solid var(--border);
+    padding: 10px 20px; gap: 12px;
+  }
+  .vsess-bottom-btn {
+    font-family: var(--font-body); font-size: 12px; font-weight: 500;
+    padding: 5px 16px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-3);
+    color: var(--muted); transition: all 0.13s;
+  }
+  .vsess-bottom-btn.exit:hover { color: var(--red-text); border-color: var(--red-border); }
+  .vsess-progress-dots { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; }
+  .vsess-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--border); transition: background 0.2s;
+  }
+  .vsess-dot.current  { background: var(--notion-blue); }
+  .vsess-dot.correct  { background: var(--green-border); }
+  .vsess-dot.wrong    { background: var(--red-border); }
+  .vsess-dot.skipped  { background: var(--muted); }
+
+  /* ── Results ── */
+  #verbal-results { display: none; padding: 40px 20px 60px; }
+  .vres-inner { max-width: 680px; margin: 0 auto; }
+  .vres-score-circle {
+    width: 120px; height: 120px; border-radius: 50%;
+    border: 4px solid var(--notion-blue); margin: 0 auto 28px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: var(--notion-blue-light);
+  }
+  .vres-score-num { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.1; }
+  .vres-score-label { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+  .vres-stats {
+    display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 28px;
+  }
+  .vres-stat {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+    padding: 12px 20px; text-align: center; min-width: 100px;
+  }
+  .vres-stat-val { font-size: 20px; font-weight: 700; color: var(--text); }
+  .vres-stat-label { font-size: 10px; color: var(--muted); font-family: var(--font-mono); margin-top: 3px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .vres-review { margin-bottom: 28px; }
+  .vres-review-item {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 7px;
+    padding: 14px 18px; margin-bottom: 8px; font-size: 13px;
+  }
+  .vres-review-item.correct { border-left: 3px solid var(--green-border); }
+  .vres-review-item.wrong   { border-left: 3px solid var(--red-border); }
+  .vres-review-passage { color: var(--text); margin-bottom: 6px; line-height: 1.5; }
+  .vres-review-verdict {
+    font-size: 11px; font-family: var(--font-mono);
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .vres-review-verdict .correct { color: var(--green-text); }
+  .vres-review-verdict .wrong   { color: var(--red-text); }
+  .vres-actions { display: flex; gap: 12px; justify-content: center; }
+  .vres-btn {
+    font-family: var(--font-body); font-size: 13px; font-weight: 600;
+    padding: 9px 24px; border-radius: 7px; cursor: pointer;
+    transition: all 0.15s; border: 1px solid var(--border);
+  }
+  .vres-btn.primary { background: var(--notion-blue); border-color: var(--notion-blue); color: #fff; }
+  .vres-btn.primary:hover { opacity: 0.85; }
+  .vres-btn.secondary { background: var(--surface-2); color: var(--text-2); }
+  .vres-btn.secondary:hover { background: var(--surface-3); }
 </style>
 </head>
 <body>
@@ -591,6 +941,7 @@
   <div id="nav-tabs">
     <button class="nav-tab active" data-tab="vocab">Vocab Mountain</button>
     <button class="nav-tab" data-tab="daily">Daily Progress</button>
+    <button class="nav-tab" data-tab="verbal">GRE Verbal</button>
   </div>
 
   <div id="vocab-view">
@@ -624,7 +975,144 @@
   </div>
 </div>
 
-<!-- Vocab word modal -->
+  <!-- ── VERBAL SECTION ── -->
+  <div id="verbal-view" style="display:none">
+
+    <!-- Hub: choose type + mode -->
+    <div id="verbal-hub">
+      <div class="verbal-hub-inner">
+        <h2 class="verbal-hub-title">GRE Verbal Practice</h2>
+        <p class="verbal-hub-sub">Choose a section type and mode to begin</p>
+
+        <div class="verbal-type-grid">
+          <div class="verbal-type-card" data-vtype="tc">
+            <div class="vtc-icon">TC</div>
+            <div class="vtc-name">Text Completion</div>
+            <div class="vtc-desc">Fill 1–3 blanks with the best word(s) from the given choices</div>
+          </div>
+          <div class="verbal-type-card" data-vtype="se">
+            <div class="vtc-icon">SE</div>
+            <div class="vtc-name">Sentence Equivalence</div>
+            <div class="vtc-desc">Pick 2 words that produce equivalent, complete sentences</div>
+          </div>
+          <div class="verbal-type-card" data-vtype="rc">
+            <div class="vtc-icon">RC</div>
+            <div class="vtc-name">Reading Comprehension</div>
+            <div class="vtc-desc">Read passages and answer inference, purpose, and detail questions</div>
+          </div>
+        </div>
+
+        <div class="verbal-options-row">
+          <div class="verbal-option-group">
+            <label class="vopt-label">Difficulty</label>
+            <div class="vopt-pills" id="diff-pills">
+              <button class="vopt-pill active" data-val="easy">Easy</button>
+              <button class="vopt-pill" data-val="medium">Medium</button>
+              <button class="vopt-pill" data-val="hard">Hard</button>
+              <button class="vopt-pill" data-val="mixed">Mixed</button>
+            </div>
+          </div>
+          <div class="verbal-option-group">
+            <label class="vopt-label">Mode</label>
+            <div class="vopt-pills" id="mode-pills">
+              <button class="vopt-pill active" data-val="quiz">Quiz Mode</button>
+              <button class="vopt-pill" data-val="timed">Timed Test</button>
+            </div>
+          </div>
+          <div class="verbal-option-group">
+            <label class="vopt-label">Questions</label>
+            <div class="vopt-pills" id="qcount-pills">
+              <button class="vopt-pill active" data-val="5">5</button>
+              <button class="vopt-pill" data-val="10">10</button>
+              <button class="vopt-pill" data-val="15">15</button>
+              <button class="vopt-pill" data-val="20">20</button>
+            </div>
+          </div>
+        </div>
+
+        <button class="verbal-start-btn" id="verbal-start-btn" disabled>
+          Select a section type to start →
+        </button>
+
+        <!-- Past sessions -->
+        <div id="verbal-history-section">
+          <div class="verbal-history-title">Recent Sessions</div>
+          <div id="verbal-history-list"><span style="color:var(--muted);font-size:12px">No sessions yet.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active session screen -->
+    <div id="verbal-session" style="display:none">
+      <!-- Session topbar -->
+      <div class="vsess-bar">
+        <div class="vsess-bar-left">
+          <span class="vsess-type-badge" id="vsess-type-badge">TC</span>
+          <span class="vsess-qcount" id="vsess-qcount">Question 1 of 10</span>
+        </div>
+        <div class="vsess-bar-center">
+          <span class="vsess-timer-wrap" id="vsess-qtimer-wrap">
+            <span class="vsess-timer-icon">⏱</span>
+            <span class="vsess-timer-label">Question:</span>
+            <span class="vsess-timer-val" id="vsess-qtimer">—</span>
+          </span>
+          <span class="vsess-sep">|</span>
+          <span class="vsess-timer-wrap" id="vsess-ttimer-wrap">
+            <span class="vsess-timer-icon">⏱</span>
+            <span class="vsess-timer-label">Total:</span>
+            <span class="vsess-timer-val" id="vsess-ttimer">—</span>
+          </span>
+        </div>
+        <div class="vsess-bar-right">
+          <button class="vsess-nav-btn" id="vsess-back">Back</button>
+          <button class="vsess-nav-btn primary" id="vsess-next">Next</button>
+        </div>
+      </div>
+
+      <!-- Question card -->
+      <div class="vsess-body">
+        <div class="vsess-card" id="vsess-card">
+          <div id="vsess-loading" class="vsess-loading">
+            <div class="vsess-spinner"></div>
+            <span>Generating question…</span>
+          </div>
+          <div id="vsess-question-content" style="display:none">
+            <!-- Rendered by JS per question type -->
+          </div>
+        </div>
+
+        <!-- Explanation panel (shown after answering in quiz mode) -->
+        <div id="vsess-explanation" class="vsess-explanation" style="display:none">
+          <div class="vsess-exp-header" id="vsess-exp-result"></div>
+          <div class="vsess-exp-body" id="vsess-exp-text"></div>
+        </div>
+      </div>
+
+      <!-- Bottom bar -->
+      <div class="vsess-bottom-bar">
+        <button class="vsess-bottom-btn pause" id="vsess-pause">⏸ Pause</button>
+        <div class="vsess-progress-dots" id="vsess-dots"></div>
+        <button class="vsess-bottom-btn exit" id="vsess-exit">Exit</button>
+      </div>
+    </div>
+
+    <!-- Results screen -->
+    <div id="verbal-results" style="display:none">
+      <div class="vres-inner">
+        <div class="vres-score-circle" id="vres-circle">
+          <span class="vres-score-num" id="vres-score-num">0/0</span>
+          <span class="vres-score-label">correct</span>
+        </div>
+        <div class="vres-stats" id="vres-stats"></div>
+        <div class="vres-review" id="vres-review"></div>
+        <div class="vres-actions">
+          <button class="vres-btn secondary" id="vres-back-hub">Back to Hub</button>
+          <button class="vres-btn primary" id="vres-retry">Try Again</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end verbal-view -->
 <div id="overlay">
   <div id="modal">
     <div id="modal-word"></div>

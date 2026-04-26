@@ -554,10 +554,11 @@ async function loadUserAndStart(user) {
       userFeatureFlags = flagsDoc.data().features || {};
     }
 
-    const hasVocab = !!userFeatureFlags.vocabmountain;
-    const hasDaily = !!userFeatureFlags.dailyprogress;
+    const hasVocab  = !!userFeatureFlags.vocabmountain;
+    const hasDaily  = !!userFeatureFlags.dailyprogress;
+    const hasVerbal = !!userFeatureFlags.verbalsection;
 
-    if (!hasVocab && !hasDaily) {
+    if (!hasVocab && !hasDaily && !hasVerbal) {
       showScreen('blocked');
       return;
     }
@@ -566,6 +567,7 @@ async function loadUserAndStart(user) {
     await loadProgressFromFirestore();
 
     if (hasVocab) showTab('vocab');
+    else if (hasVerbal) showTab('verbal');
     else showTab('daily');
 
     showScreen('main');
@@ -585,13 +587,16 @@ function showScreen(screen) {
 
 // ── NAV TABS ──────────────────────────────────────────────────────────────────
 function setupNavTabs(hasVocab, hasDaily) {
-  const navTabs = document.getElementById('nav-tabs');
+  const navTabs  = document.getElementById('nav-tabs');
   const vocabTab = document.querySelector('[data-tab="vocab"]');
   const dailyTab = document.querySelector('[data-tab="daily"]');
+  const verbalTab= document.querySelector('[data-tab="verbal"]');
+  const hasVerbal= !!userFeatureFlags.verbalsection;
 
-  if (hasVocab && hasDaily) navTabs.style.display = 'flex';
-  if (!hasVocab) vocabTab.style.display = 'none';
-  if (!hasDaily) dailyTab.style.display = 'none';
+  if (hasVocab || hasDaily || hasVerbal) navTabs.style.display = 'flex';
+  if (!hasVocab)  vocabTab.style.display  = 'none';
+  if (!hasDaily)  dailyTab.style.display  = 'none';
+  if (!hasVerbal) verbalTab.style.display = 'none';
 
   navTabs.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', () => showTab(tab.dataset.tab));
@@ -600,8 +605,9 @@ function setupNavTabs(hasVocab, hasDaily) {
 
 function showTab(tab) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  document.getElementById('vocab-view').style.display = tab === 'vocab' ? 'block' : 'none';
-  document.getElementById('daily-view').style.display = tab === 'daily' ? 'block' : 'none';
+  document.getElementById('vocab-view').style.display  = tab === 'vocab'  ? 'block' : 'none';
+  document.getElementById('daily-view').style.display  = tab === 'daily'  ? 'block' : 'none';
+  document.getElementById('verbal-view').style.display = tab === 'verbal' ? 'block' : 'none';
 
   const sliderWrap = document.querySelector('.slider-wrap');
   const keysHint   = document.querySelector('.keys-hint');
@@ -613,7 +619,8 @@ function showTab(tab) {
     if (el) el.style.display = isVocab ? '' : 'none';
   });
 
-  if (tab === 'daily') renderDailyTable();
+  if (tab === 'daily')  renderDailyTable();
+  if (tab === 'verbal') initVerbalHub();
 }
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
@@ -1347,3 +1354,680 @@ function setupVocabControls() {
 
 // ── KICK OFF ──────────────────────────────────────────────────────────────────
 bootstrap();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GRE VERBAL SECTION
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let verbalState = {
+  selectedType: null,   // 'tc' | 'se' | 'rc'
+  difficulty:   'easy',
+  mode:         'quiz', // 'quiz' | 'timed'
+  qcount:       5,
+  // session
+  questions:    [],
+  current:      0,
+  answers:      [],   // per question: { answered: bool, correct: bool, userAnswer: any }
+  sessionStart: null,
+  questionStart:null,
+  totalTimer:   null,
+  questionTimer:null,
+  paused:       false,
+  totalSeconds: 0,
+  questionSeconds: 0,
+  sessionHistory: [], // saved to Firestore
+};
+
+const VERBAL_TIME_PER_Q  = 120; // 2 min per question (quiz mode display only)
+const VERBAL_TIMED_TOTAL = { 5: 600, 10: 1200, 15: 1800, 20: 2400 }; // timed mode
+
+// ── HUB INIT ──────────────────────────────────────────────────────────────────
+let verbalHubReady = false;
+
+function initVerbalHub() {
+  showVerbalScreen('hub');
+  renderVerbalHistory();
+
+  if (verbalHubReady) return;
+  verbalHubReady = true;
+
+  // Type cards
+  document.querySelectorAll('.verbal-type-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.verbal-type-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      verbalState.selectedType = card.dataset.vtype;
+      updateStartBtn();
+    });
+  });
+
+  // Pill groups
+  setupPillGroup('diff-pills',   val => { verbalState.difficulty = val; });
+  setupPillGroup('mode-pills',   val => { verbalState.mode = val; });
+  setupPillGroup('qcount-pills', val => { verbalState.qcount = parseInt(val); });
+
+  document.getElementById('verbal-start-btn').addEventListener('click', startVerbalSession);
+}
+
+function setupPillGroup(containerId, onChange) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.querySelectorAll('.vopt-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      container.querySelectorAll('.vopt-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      onChange(pill.dataset.val);
+    });
+  });
+}
+
+function updateStartBtn() {
+  const btn = document.getElementById('verbal-start-btn');
+  if (!btn) return;
+  if (verbalState.selectedType) {
+    btn.disabled = false;
+    const labels = { tc: 'Text Completion', se: 'Sentence Equivalence', rc: 'Reading Comprehension' };
+    btn.textContent = `Start ${labels[verbalState.selectedType]} — ${verbalState.qcount} Questions →`;
+  } else {
+    btn.disabled = true;
+    btn.textContent = 'Select a section type to start →';
+  }
+}
+
+function showVerbalScreen(screen) {
+  document.getElementById('verbal-hub').style.display      = screen === 'hub'     ? 'block' : 'none';
+  document.getElementById('verbal-session').style.display  = screen === 'session' ? 'block' : 'none';
+  document.getElementById('verbal-results').style.display  = screen === 'results' ? 'block' : 'none';
+}
+
+// ── START SESSION ─────────────────────────────────────────────────────────────
+async function startVerbalSession() {
+  const { selectedType, difficulty, mode, qcount } = verbalState;
+  verbalState.questions     = [];
+  verbalState.current       = 0;
+  verbalState.answers       = Array(qcount).fill(null).map(() => ({ answered: false, correct: false, userAnswer: null }));
+  verbalState.sessionStart  = Date.now();
+  verbalState.paused        = false;
+  verbalState.totalSeconds  = mode === 'timed' ? (VERBAL_TIMED_TOTAL[qcount] || qcount * 120) : 0;
+
+  showVerbalScreen('session');
+  setupSessionControls();
+  renderProgressDots();
+  startTimers();
+
+  // Pre-fetch all questions upfront (better UX than generating one at a time)
+  await fetchAllQuestions();
+  renderCurrentQuestion();
+}
+
+async function fetchAllQuestions() {
+  const { selectedType, difficulty, qcount } = verbalState;
+
+  // Build vocab word list from user's groups for contextual questions
+  const vocabWords = groups.flatMap(g => g.words.map(w => w.w)).slice(0, 60);
+
+  // For RC, each "question" is actually a passage+questions set — fetch fewer passages
+  const fetchCount = selectedType === 'rc' ? Math.ceil(qcount / 3) : qcount;
+  const fetchDiff  = difficulty === 'mixed'
+    ? ['easy', 'medium', 'hard', 'medium', 'hard'].slice(0, fetchCount)
+    : Array(fetchCount).fill(difficulty);
+
+  showLoading(true);
+
+  // Fetch in batches of 3 to stay within rate limits
+  const allQuestions = [];
+  for (let i = 0; i < fetchCount; i++) {
+    try {
+      const res = await fetch('/api/generate-question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type:       selectedType,
+          difficulty: fetchDiff[i],
+          vocabWords,
+          count: 1,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.questions && data.questions.length > 0) {
+        allQuestions.push(...data.questions);
+      }
+    } catch (err) {
+      console.error('Fetch question error:', err);
+      allQuestions.push(makeFallbackQuestion(selectedType, fetchDiff[i], i));
+    }
+  }
+
+  // For RC, flatten passage+questions into individual RC question items
+  if (selectedType === 'rc') {
+    verbalState.questions = flattenRCQuestions(allQuestions, qcount);
+  } else {
+    verbalState.questions = allQuestions.slice(0, qcount);
+  }
+
+  // Pad with fallbacks if Gemini returned fewer than expected
+  while (verbalState.questions.length < verbalState.qcount) {
+    verbalState.questions.push(makeFallbackQuestion(selectedType, difficulty, verbalState.questions.length));
+  }
+
+  showLoading(false);
+}
+
+function flattenRCQuestions(passages, targetCount) {
+  const flat = [];
+  for (const passage of passages) {
+    if (!passage.questions) continue;
+    for (const q of passage.questions) {
+      flat.push({ ...q, type: 'rc', passage: passage.passage, difficulty: passage.difficulty });
+      if (flat.length >= targetCount) return flat;
+    }
+  }
+  return flat;
+}
+
+function showLoading(show) {
+  const loading = document.getElementById('vsess-loading');
+  const content = document.getElementById('vsess-question-content');
+  if (loading) loading.style.display = show ? 'flex' : 'none';
+  if (content) content.style.display = show ? 'none' : 'block';
+}
+
+// ── FALLBACK QUESTIONS (if Gemini fails) ──────────────────────────────────────
+function makeFallbackQuestion(type, difficulty, idx) {
+  if (type === 'tc') return {
+    id: `fallback_tc_${idx}`, type: 'tc', difficulty, numBlanks: 1,
+    passage: 'The scientist\'s findings were so (i)__________ that even her colleagues struggled to follow her reasoning.',
+    blanks: [{ label: 'Blank (i)', choices: [
+      { label: 'A', text: 'abstruse' }, { label: 'B', text: 'lucid' }, { label: 'C', text: 'mundane' },
+      { label: 'D', text: 'derivative' }, { label: 'E', text: 'conventional' }
+    ], correct: 'A' }],
+    explanation: 'Abstruse means difficult to understand. The clue "even her colleagues struggled" indicates the findings were highly complex and obscure.',
+  };
+  if (type === 'se') return {
+    id: `fallback_se_${idx}`, type: 'se', difficulty,
+    passage: 'Far from being the __________ figure his critics portrayed, the statesman was actually known for his warmth and generosity.',
+    choices: [
+      { label: 'A', text: 'magnanimous' }, { label: 'B', text: 'cold' },
+      { label: 'C', text: 'austere' }, { label: 'D', text: 'venerated' },
+      { label: 'E', text: 'distant' }, { label: 'F', text: 'exemplary' }
+    ],
+    correct: ['C', 'E'],
+    explanation: 'Austere and distant are near-synonyms meaning cold and remote. Both contrast with the warmth and generosity described in the second clause.',
+  };
+  return {
+    id: `fallback_rc_${idx}`, type: 'rc', difficulty,
+    passage: 'The concept of neuroplasticity—the brain\'s ability to reorganize itself by forming new neural connections—has revolutionized our understanding of human cognition. Once believed to be fixed after childhood, the brain is now known to remain adaptable throughout life.',
+    qtype: 'main idea', text: 'The primary purpose of this passage is to',
+    choices: [
+      { label: 'A', text: 'argue that childhood brain development is unimportant' },
+      { label: 'B', text: 'describe how neuroplasticity changed scientific understanding of the brain' },
+      { label: 'C', text: 'explain the technical mechanisms behind neural connections' },
+      { label: 'D', text: 'question the validity of neuroplasticity research' },
+      { label: 'E', text: 'compare adult and childhood brain development' }
+    ],
+    correct: 'B',
+    explanation: 'The passage describes the concept of neuroplasticity and how it changed our understanding of the brain from fixed to adaptable.',
+  };
+}
+
+// ── RENDER CURRENT QUESTION ────────────────────────────────────────────────────
+function renderCurrentQuestion() {
+  const q      = verbalState.questions[verbalState.current];
+  const answer = verbalState.answers[verbalState.current];
+  if (!q) return;
+
+  verbalState.questionStart   = Date.now();
+  verbalState.questionSeconds = 0;
+
+  // Update bar
+  document.getElementById('vsess-type-badge').textContent = q.type.toUpperCase();
+  document.getElementById('vsess-qcount').textContent =
+    `Question ${verbalState.current + 1} of ${verbalState.qcount}`;
+
+  // Update nav buttons
+  document.getElementById('vsess-back').disabled = verbalState.current === 0;
+  document.getElementById('vsess-next').textContent =
+    verbalState.current === verbalState.qcount - 1 ? 'Finish' : 'Next';
+
+  // Render question content
+  const container = document.getElementById('vsess-question-content');
+  container.innerHTML = '';
+
+  // Difficulty badge
+  const badge = document.createElement('div');
+  badge.className = `vsess-diff-badge ${q.difficulty}`;
+  badge.textContent = `${q.type.toUpperCase()} · ${q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1)}`;
+  container.appendChild(badge);
+
+  if (q.type === 'tc') renderTCQuestion(container, q, answer);
+  else if (q.type === 'se') renderSEQuestion(container, q, answer);
+  else if (q.type === 'rc') renderRCQuestion(container, q, answer);
+
+  // Show/hide explanation
+  const expPanel = document.getElementById('vsess-explanation');
+  if (answer.answered && verbalState.mode === 'quiz') {
+    showExplanation(q, answer);
+  } else {
+    expPanel.style.display = 'none';
+  }
+
+  renderProgressDots();
+}
+
+// ── TC RENDERER ───────────────────────────────────────────────────────────────
+function renderTCQuestion(container, q, answer) {
+  // Render passage with blanks as underlines
+  const passageEl = document.createElement('div');
+  passageEl.className = 'vsess-passage';
+  passageEl.innerHTML = formatTCPassage(q.passage, q.blanks, answer);
+  container.appendChild(passageEl);
+
+  // Blank columns
+  const grid = document.createElement('div');
+  grid.className = 'tc-blanks-grid';
+
+  q.blanks.forEach((blank, bIdx) => {
+    const col = document.createElement('div');
+    col.className = 'tc-blank-col';
+    const lbl = document.createElement('div');
+    lbl.className = 'tc-blank-label';
+    lbl.textContent = blank.label;
+    col.appendChild(lbl);
+
+    blank.choices.forEach(choice => {
+      const btn = document.createElement('div');
+      btn.className = 'tc-choice';
+      btn.textContent = choice.text;
+      btn.dataset.blankIdx = bIdx;
+      btn.dataset.choiceLabel = choice.label;
+
+      const userPick = answer.userAnswer?.[bIdx];
+      if (answer.answered) {
+        btn.classList.add('disabled');
+        if (choice.label === blank.correct) btn.classList.add('reveal-correct');
+        else if (choice.label === userPick && userPick !== blank.correct) btn.classList.add('wrong');
+        else if (choice.label === userPick) btn.classList.add('selected');
+      } else {
+        if (choice.label === userPick) btn.classList.add('selected');
+        btn.addEventListener('click', () => handleTCChoice(bIdx, choice.label, q, answer));
+      }
+      col.appendChild(btn);
+    });
+    grid.appendChild(col);
+  });
+  container.appendChild(grid);
+}
+
+function formatTCPassage(passage, blanks, answer) {
+  // Replace (i)__________, (ii)__________ etc with filled/empty spans
+  let html = passage;
+  blanks.forEach((blank, bIdx) => {
+    const userPick = answer.userAnswer?.[bIdx];
+    const choiceText = userPick
+      ? blank.choices.find(c => c.label === userPick)?.text || '___'
+      : null;
+    const regex = new RegExp(`\\(${['i','ii','iii'][bIdx]}\\)_+`, 'g');
+    const spanClass = choiceText ? 'blank-filled' : 'blank-placeholder';
+    const spanText  = choiceText || '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+    html = html.replace(regex, `<span class="${spanClass}">${spanText}</span>`);
+  });
+  return html;
+}
+
+function handleTCChoice(blankIdx, choiceLabel, q, answer) {
+  if (answer.answered) return;
+  if (!answer.userAnswer) answer.userAnswer = {};
+  answer.userAnswer[blankIdx] = choiceLabel;
+
+  // Check if all blanks filled
+  const allFilled = q.blanks.every((_, i) => answer.userAnswer[i]);
+  if (allFilled) {
+    answer.answered = true;
+    answer.correct  = q.blanks.every((blank, i) => answer.userAnswer[i] === blank.correct);
+    if (verbalState.mode === 'quiz') showExplanation(q, answer);
+  }
+  renderCurrentQuestion();
+}
+
+// ── SE RENDERER ───────────────────────────────────────────────────────────────
+function renderSEQuestion(container, q, answer) {
+  const passageEl = document.createElement('div');
+  passageEl.className = 'vsess-passage';
+  passageEl.innerHTML = q.passage.replace('__________', '<span class="blank-placeholder">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>');
+  container.appendChild(passageEl);
+
+  const choicesEl = document.createElement('div');
+  choicesEl.className = 'se-choices';
+
+  q.choices.forEach(choice => {
+    const row = document.createElement('div');
+    row.className = 'se-choice';
+    row.innerHTML = `
+      <span class="se-label" style="font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--muted);width:18px;flex-shrink:0">${choice.label}</span>
+      <span class="se-checkbox">${(answer.userAnswer || []).includes(choice.label) ? '✓' : ''}</span>
+      <span>${choice.text}</span>`;
+
+    const selected = (answer.userAnswer || []).includes(choice.label);
+    if (selected) row.classList.add('selected');
+
+    if (answer.answered) {
+      row.classList.add('disabled');
+      if (q.correct.includes(choice.label)) row.classList.add('reveal-correct');
+      else if (selected) row.classList.add('wrong');
+    } else {
+      row.addEventListener('click', () => handleSEChoice(choice.label, q, answer));
+    }
+    choicesEl.appendChild(row);
+  });
+
+  const hint = document.createElement('div');
+  hint.className = 'se-hint';
+  const selCount = (answer.userAnswer || []).length;
+  hint.textContent = answer.answered ? '' : `Select exactly 2 answers (${selCount}/2 selected)`;
+  if (selCount === 2) hint.classList.add('maxed');
+  choicesEl.appendChild(hint);
+
+  container.appendChild(choicesEl);
+}
+
+function handleSEChoice(choiceLabel, q, answer) {
+  if (answer.answered) return;
+  if (!answer.userAnswer) answer.userAnswer = [];
+  const idx = answer.userAnswer.indexOf(choiceLabel);
+  if (idx >= 0) {
+    answer.userAnswer.splice(idx, 1);
+  } else {
+    if (answer.userAnswer.length >= 2) return; // max 2
+    answer.userAnswer.push(choiceLabel);
+  }
+  if (answer.userAnswer.length === 2) {
+    answer.answered = true;
+    const sorted = [...answer.userAnswer].sort().join(',');
+    const correct = [...q.correct].sort().join(',');
+    answer.correct = sorted === correct;
+    if (verbalState.mode === 'quiz') showExplanation(q, answer);
+  }
+  renderCurrentQuestion();
+}
+
+// ── RC RENDERER ───────────────────────────────────────────────────────────────
+function renderRCQuestion(container, q, answer) {
+  const passageEl = document.createElement('div');
+  passageEl.className = 'rc-passage';
+  passageEl.textContent = q.passage;
+  container.appendChild(passageEl);
+
+  const qTypeEl = document.createElement('div');
+  qTypeEl.className = 'rc-q-label';
+  qTypeEl.textContent = (q.qtype || 'Question').toUpperCase();
+  container.appendChild(qTypeEl);
+
+  const qText = document.createElement('div');
+  qText.className = 'rc-question-text';
+  qText.textContent = q.text;
+  container.appendChild(qText);
+
+  const choicesEl = document.createElement('div');
+  q.choices.forEach(choice => {
+    const row = document.createElement('div');
+    row.className = 'rc-choice';
+    row.innerHTML = `<span class="rc-choice-label">${choice.label}</span><span>${choice.text}</span>`;
+
+    if (answer.userAnswer === choice.label) row.classList.add('selected');
+    if (answer.answered) {
+      row.classList.add('disabled');
+      if (choice.label === q.correct) row.classList.add('reveal-correct');
+      else if (answer.userAnswer === choice.label) row.classList.add('wrong');
+    } else {
+      row.addEventListener('click', () => handleRCChoice(choice.label, q, answer));
+    }
+    choicesEl.appendChild(row);
+  });
+  container.appendChild(choicesEl);
+}
+
+function handleRCChoice(choiceLabel, q, answer) {
+  if (answer.answered) return;
+  answer.userAnswer = choiceLabel;
+  answer.answered   = true;
+  answer.correct    = choiceLabel === q.correct;
+  if (verbalState.mode === 'quiz') showExplanation(q, answer);
+  renderCurrentQuestion();
+}
+
+// ── EXPLANATION ───────────────────────────────────────────────────────────────
+function showExplanation(q, answer) {
+  const panel = document.getElementById('vsess-explanation');
+  const head  = document.getElementById('vsess-exp-result');
+  const body  = document.getElementById('vsess-exp-text');
+  panel.style.display = 'block';
+  head.className = `vsess-exp-header ${answer.correct ? 'correct' : 'wrong'}`;
+  head.textContent = answer.correct ? '✓ Correct!' : '✗ Incorrect';
+  body.textContent = q.explanation || '';
+}
+
+// ── PROGRESS DOTS ─────────────────────────────────────────────────────────────
+function renderProgressDots() {
+  const container = document.getElementById('vsess-dots');
+  if (!container) return;
+  container.innerHTML = '';
+  verbalState.answers.forEach((a, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'vsess-dot';
+    if (i === verbalState.current) dot.classList.add('current');
+    else if (a.answered && a.correct)  dot.classList.add('correct');
+    else if (a.answered && !a.correct) dot.classList.add('wrong');
+    container.appendChild(dot);
+  });
+}
+
+// ── TIMERS ────────────────────────────────────────────────────────────────────
+function startTimers() {
+  clearTimers();
+  const isTimed = verbalState.mode === 'timed';
+
+  verbalState.questionTimer = setInterval(() => {
+    if (verbalState.paused) return;
+    verbalState.questionSeconds++;
+    const el = document.getElementById('vsess-qtimer');
+    if (el) el.textContent = formatTime(verbalState.questionSeconds);
+  }, 1000);
+
+  if (isTimed) {
+    verbalState.totalTimer = setInterval(() => {
+      if (verbalState.paused) return;
+      verbalState.totalSeconds--;
+      const el = document.getElementById('vsess-ttimer');
+      if (el) {
+        el.textContent = formatTime(verbalState.totalSeconds);
+        el.classList.toggle('urgent', verbalState.totalSeconds <= 60);
+      }
+      if (verbalState.totalSeconds <= 0) finishSession();
+    }, 1000);
+    const ttimer = document.getElementById('vsess-ttimer');
+    if (ttimer) ttimer.textContent = formatTime(verbalState.totalSeconds);
+  } else {
+    // Quiz mode: show per-question time, no total countdown
+    const twrap = document.getElementById('vsess-ttimer-wrap');
+    if (twrap) twrap.style.display = 'none';
+  }
+}
+
+function clearTimers() {
+  if (verbalState.questionTimer) clearInterval(verbalState.questionTimer);
+  if (verbalState.totalTimer)    clearInterval(verbalState.totalTimer);
+}
+
+function resetQuestionTimer() {
+  verbalState.questionSeconds = 0;
+  const el = document.getElementById('vsess-qtimer');
+  if (el) el.textContent = '0:00';
+}
+
+function formatTime(secs) {
+  const s = Math.max(0, secs);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// ── SESSION CONTROLS ──────────────────────────────────────────────────────────
+let sessionControlsSetup = false;
+function setupSessionControls() {
+  if (sessionControlsSetup) return;
+  sessionControlsSetup = true;
+
+  document.getElementById('vsess-next').addEventListener('click', () => {
+    if (verbalState.current < verbalState.qcount - 1) {
+      verbalState.current++;
+      resetQuestionTimer();
+      renderCurrentQuestion();
+    } else {
+      finishSession();
+    }
+  });
+
+  document.getElementById('vsess-back').addEventListener('click', () => {
+    if (verbalState.current > 0) {
+      verbalState.current--;
+      resetQuestionTimer();
+      renderCurrentQuestion();
+    }
+  });
+
+  document.getElementById('vsess-pause').addEventListener('click', () => {
+    verbalState.paused = !verbalState.paused;
+    document.getElementById('vsess-pause').textContent = verbalState.paused ? '▶ Resume' : '⏸ Pause';
+  });
+
+  document.getElementById('vsess-exit').addEventListener('click', () => {
+    if (confirm('Exit session? Progress will be lost.')) {
+      clearTimers();
+      sessionControlsSetup = false;
+      showVerbalScreen('hub');
+    }
+  });
+}
+
+// ── FINISH SESSION ────────────────────────────────────────────────────────────
+async function finishSession() {
+  clearTimers();
+  sessionControlsSetup = false;
+
+  const correct = verbalState.answers.filter(a => a.answered && a.correct).length;
+  const total   = verbalState.answers.filter(a => a.answered).length;
+  const elapsed = Math.floor((Date.now() - verbalState.sessionStart) / 1000);
+
+  // Save to Firestore session history
+  const sessionRecord = {
+    type:       verbalState.selectedType,
+    difficulty: verbalState.difficulty,
+    mode:       verbalState.mode,
+    correct, total,
+    elapsed,
+    date: new Date().toISOString(),
+  };
+  verbalState.sessionHistory.unshift(sessionRecord);
+  verbalState.sessionHistory = verbalState.sessionHistory.slice(0, 20); // keep last 20
+  await saveVerbalHistory();
+
+  renderResults(correct, total, elapsed);
+  showVerbalScreen('results');
+}
+
+async function saveVerbalHistory() {
+  if (!currentUser) return;
+  try {
+    const { doc, setDoc } = window._fs;
+    await setDoc(doc(db, 'verbalHistory', currentUser.uid), {
+      sessions: verbalState.sessionHistory,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (e) { console.warn('Could not save verbal history:', e); }
+}
+
+async function loadVerbalHistory() {
+  if (!currentUser) return;
+  try {
+    const { doc, getDoc } = window._fs;
+    const snap = await getDoc(doc(db, 'verbalHistory', currentUser.uid));
+    if (snap.exists()) {
+      verbalState.sessionHistory = snap.data().sessions || [];
+    }
+  } catch (e) { console.warn('Could not load verbal history:', e); }
+}
+
+// ── RESULTS SCREEN ────────────────────────────────────────────────────────────
+function renderResults(correct, total, elapsed) {
+  const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+  document.getElementById('vres-score-num').textContent = `${correct}/${total}`;
+  document.getElementById('vres-circle').style.borderColor =
+    pct >= 70 ? 'var(--green-border)' : pct >= 50 ? 'var(--yellow-text)' : 'var(--red-border)';
+
+  const stats = document.getElementById('vres-stats');
+  stats.innerHTML = `
+    <div class="vres-stat"><div class="vres-stat-val">${pct}%</div><div class="vres-stat-label">Score</div></div>
+    <div class="vres-stat"><div class="vres-stat-val">${correct}</div><div class="vres-stat-label">Correct</div></div>
+    <div class="vres-stat"><div class="vres-stat-val">${total - correct}</div><div class="vres-stat-label">Wrong</div></div>
+    <div class="vres-stat"><div class="vres-stat-val">${formatTime(elapsed)}</div><div class="vres-stat-label">Time</div></div>`;
+
+  // Review each question
+  const review = document.getElementById('vres-review');
+  review.innerHTML = '';
+  verbalState.questions.forEach((q, i) => {
+    const a = verbalState.answers[i];
+    if (!a || !a.answered) return;
+    const item = document.createElement('div');
+    item.className = `vres-review-item ${a.correct ? 'correct' : 'wrong'}`;
+
+    const passagePreview = (q.passage || q.text || '').slice(0, 120) + '…';
+    item.innerHTML = `
+      <div class="vres-review-passage">${passagePreview}</div>
+      <div class="vres-review-verdict">
+        <span class="${a.correct ? 'correct' : 'wrong'}">${a.correct ? '✓ Correct' : '✗ Incorrect'}</span>
+        <span style="color:var(--muted)">${q.type.toUpperCase()} · ${q.difficulty}</span>
+        ${q.explanation ? `<span style="color:var(--muted);font-style:italic">${q.explanation.slice(0, 80)}…</span>` : ''}
+      </div>`;
+    review.appendChild(item);
+  });
+
+  document.getElementById('vres-back-hub').onclick = () => {
+    showVerbalScreen('hub');
+    renderVerbalHistory();
+  };
+  document.getElementById('vres-retry').onclick = startVerbalSession;
+}
+
+// ── HISTORY ───────────────────────────────────────────────────────────────────
+function renderVerbalHistory() {
+  const list = document.getElementById('verbal-history-list');
+  if (!list) return;
+
+  if (verbalState.sessionHistory.length === 0) {
+    list.innerHTML = '<span style="color:var(--muted);font-size:12px">No sessions yet.</span>';
+    return;
+  }
+
+  list.innerHTML = '';
+  verbalState.sessionHistory.slice(0, 5).forEach(s => {
+    const pct  = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
+    const date = new Date(s.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const row  = document.createElement('div');
+    row.className = 'vhist-row';
+    row.innerHTML = `
+      <span class="vhist-badge">${s.type.toUpperCase()}</span>
+      <span class="vhist-score">${s.correct}/${s.total}</span>
+      <span style="font-size:12px;color:var(--muted)">${pct}% · ${s.difficulty} · ${s.mode}</span>
+      <span class="vhist-meta">${date} · ${formatTime(s.elapsed)}</span>`;
+    list.appendChild(row);
+  });
+}
+
+// Load verbal history when app starts
+const _origLoadProgress = loadProgressFromFirestore;
+// Patch to also load verbal history
+async function loadProgressFromFirestore() {
+  await _origLoadProgress.call(this);
+  await loadVerbalHistory();
+}
