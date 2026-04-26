@@ -1,6 +1,10 @@
 // netlify/functions/generate-question.js
-// Calls Gemini API server-side — the GEMINI_API_KEY env var is NEVER sent to the browser.
-// Free tier: 15 req/min, 1500 req/day — plenty for personal study use.
+// Calls Gemini API server-side — GEMINI_API_KEY env var is NEVER sent to browser.
+//
+// MODEL: gemini-2.0-flash  (free tier: 15 req/min, 1500 req/day)
+// STRATEGY: Requests 20 questions per call to a SHARED bank.
+//   Questions are generated once, all users benefit.
+//   API only fires when unsolved count drops below watermark.
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -9,30 +13,26 @@ exports.handler = async (event) => {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Gemini API key not configured' }) };
+    return { statusCode: 500, body: JSON.stringify({ error: 'GEMINI_API_KEY not configured' }) };
   }
 
   let body;
-  try {
-    body = JSON.parse(event.body);
-  } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid request body' }) };
-  }
+  try { body = JSON.parse(event.body); }
+  catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) }; }
 
-  const { type, difficulty, vocabWords, count = 1 } = body;
+  const { type, difficulty, vocabWords, count = 5 } = body;
 
-  // Validate
   const validTypes = ['tc', 'se', 'rc'];
   const validDiffs = ['easy', 'medium', 'hard'];
-  if (!validTypes.includes(type))  return { statusCode: 400, body: JSON.stringify({ error: 'Invalid type' }) };
+  if (!validTypes.includes(type))       return { statusCode: 400, body: JSON.stringify({ error: 'Invalid type' }) };
   if (!validDiffs.includes(difficulty)) return { statusCode: 400, body: JSON.stringify({ error: 'Invalid difficulty' }) };
-  const safeCount = Math.min(Math.max(1, parseInt(count) || 1), 5); // clamp 1–5
+  const safeCount = Math.min(Math.max(1, parseInt(count) || 5), 20);
 
   const prompt = buildPrompt(type, difficulty, vocabWords || [], safeCount);
 
   try {
     const geminiRes = await fetch(
-     `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -46,28 +46,26 @@ exports.handler = async (event) => {
       }
     );
 
+    if (geminiRes.status === 429) {
+      return { statusCode: 429, body: JSON.stringify({ error: 'Rate limit hit', rateLimited: true }) };
+    }
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
       console.error('Gemini error:', err);
-      // Pass 429 through so the frontend knows to back off
-      if (geminiRes.status === 429) {
-        return { statusCode: 429, body: JSON.stringify({ error: 'Rate limit hit — using fallback questions', rateLimited: true }) };
-      }
       return { statusCode: 502, body: JSON.stringify({ error: 'Gemini API error', detail: err }) };
     }
 
     const geminiData = await geminiRes.json();
     const text = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return { statusCode: 502, body: JSON.stringify({ error: 'Empty response from Gemini' }) };
+    if (!text) return { statusCode: 502, body: JSON.stringify({ error: 'Empty Gemini response' }) };
 
-    // Parse and validate the JSON
     let questions;
     try {
       const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
       questions = JSON.parse(cleaned);
       if (!Array.isArray(questions)) questions = [questions];
     } catch (e) {
-      console.error('JSON parse error:', e, 'Raw text:', text);
+      console.error('JSON parse error:', e, '\nRaw:', text.slice(0, 500));
       return { statusCode: 502, body: JSON.stringify({ error: 'Failed to parse Gemini response' }) };
     }
 

@@ -1382,114 +1382,182 @@ let verbalState = {
   sessionHistory: [], // saved to Firestore
 };
  
-// ── QUESTION BANK ─────────────────────────────────────────────────────────────
-// Questions are stored in Firestore: verbalBank/{uid}/questions/{docId}
-// Each question has: type, difficulty, ...question fields, source ('ai'|'manual'), createdAt
-let questionBank = { tc: [], se: [], rc: [] }; // loaded from Firestore
-let bankLoaded   = false;
- 
+// ── QUESTION BANK ARCHITECTURE ────────────────────────────────────────────────
+//
+// Firestore layout:
+//
+//  sharedBank/{questionId}              ← ONE shared pool for ALL users
+//    type, difficulty, source, createdAt, addedBy
+//    + all question fields (passage, blanks, choices, etc.)
+//
+//  userVerbal/{uid}/solved/{questionId} ← per-user solved records
+//    solvedAt, correct, timeTakenSec
+//
+//  userVerbal/{uid}/superset/{qId}      ← per-user "hard" bookmarks
+//    addedAt
+//
+//  userVerbal/{uid}/sessions/{id}       ← session history
+//
+// Benefits: Gemini fires ONCE, all users benefit. Bank grows as users solve.
+
+let questionBank    = { tc: [], se: [], rc: [] };
+let userSolvedIds   = new Set();
+let userSupersetIds = new Set();
+let bankLoaded      = false;
+
+const BANK_LOW_WATERMARK   = 15;   // unsolved threshold before auto-refill
+const BANK_BATCH_SIZE      = 20;   // questions per Gemini call
+const BANK_REFILL_COOLDOWN = 90_000;
+let   _lastPrefillAt       = 0;
+
 async function loadQuestionBank() {
   if (!currentUser) return;
+  const { collection, getDocs } = window._fs;
   try {
-    const { collection, getDocs } = window._fs;
-    const snap = await getDocs(collection(db, 'verbalBank', currentUser.uid, 'questions'));
+    // 1. Shared bank
+    const bankSnap = await getDocs(collection(db, 'sharedBank'));
     questionBank = { tc: [], se: [], rc: [] };
-    snap.forEach(d => {
+    bankSnap.forEach(d => {
       const q = { id: d.id, ...d.data() };
       if (questionBank[q.type]) questionBank[q.type].push(q);
     });
+
+    // 2. Per-user solved IDs
+    const solvedSnap = await getDocs(collection(db, 'userVerbal', currentUser.uid, 'solved'));
+    userSolvedIds = new Set();
+    solvedSnap.forEach(d => userSolvedIds.add(d.id));
+
+    // 3. Per-user superset IDs
+    const superSnap = await getDocs(collection(db, 'userVerbal', currentUser.uid, 'superset'));
+    userSupersetIds = new Set();
+    superSnap.forEach(d => userSupersetIds.add(d.id));
+
     bankLoaded = true;
-  } catch (e) { console.warn('Could not load question bank:', e); bankLoaded = true; }
+    console.log(`[Bank] tc=${questionBank.tc.length} se=${questionBank.se.length} rc=${questionBank.rc.length} | solved=${userSolvedIds.size} | superset=${userSupersetIds.size}`);
+  } catch (e) {
+    console.warn('[Bank] Load error:', e);
+    bankLoaded = true;
+  }
 }
- 
-async function saveQuestionToBank(q) {
-  if (!currentUser) return;
+
+async function markQuestionSolved(questionId, correct, timeTakenSec) {
+  if (!currentUser || !questionId || questionId.startsWith('fallback_')) return;
+  userSolvedIds.add(questionId);
   try {
-    const { collection, doc, setDoc } = window._fs;
-    const id = q.id || `${q.type}_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
-    q.id = id;
-    await setDoc(doc(db, 'verbalBank', currentUser.uid, 'questions', id), q);
-    if (questionBank[q.type]) questionBank[q.type].push(q);
-    return q;
-  } catch (e) { console.warn('Could not save question:', e); }
+    const { doc, setDoc } = window._fs;
+    await setDoc(doc(db, 'userVerbal', currentUser.uid, 'solved', questionId), {
+      solvedAt:     new Date().toISOString(),
+      correct:      correct,
+      timeTakenSec: Math.round(timeTakenSec || 0),
+    });
+  } catch (e) { console.warn('[Bank] markSolved failed:', e); }
 }
- 
-async function deleteQuestionFromBank(q) {
+
+async function addToSuperset(questionId) {
+  if (!currentUser || !questionId || questionId.startsWith('fallback_')) return;
+  userSupersetIds.add(questionId);
+  try {
+    const { doc, setDoc } = window._fs;
+    await setDoc(doc(db, 'userVerbal', currentUser.uid, 'superset', questionId), {
+      addedAt: new Date().toISOString(),
+    });
+    showToast('Added to superset ⭐', 'success');
+  } catch (e) { console.warn('[Bank] addToSuperset failed:', e); }
+}
+
+async function removeFromSuperset(questionId) {
   if (!currentUser) return;
+  userSupersetIds.delete(questionId);
   try {
     const { doc, deleteDoc } = window._fs;
-    await deleteDoc(doc(db, 'verbalBank', currentUser.uid, 'questions', q.id));
-    questionBank[q.type] = questionBank[q.type].filter(x => x.id !== q.id);
-  } catch (e) { console.warn('Could not delete question:', e); }
+    await deleteDoc(doc(db, 'userVerbal', currentUser.uid, 'superset', questionId));
+    showToast('Removed from superset', 'info');
+  } catch (e) { console.warn('[Bank] removeFromSuperset failed:', e); }
 }
- 
-// Draw N questions from bank for a session (shuffle, filter by type & difficulty)
-function drawFromBank(type, difficulty, count) {
+
+async function saveQuestionToBank(q) {
+  if (!currentUser) return q;
+  const { doc, setDoc } = window._fs;
+  const id = q.id || `${q.type}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  q.id      = id;
+  q.addedBy = currentUser.uid;
+  q.createdAt = q.createdAt || new Date().toISOString();
+  try {
+    await setDoc(doc(db, 'sharedBank', id), q);
+    if (questionBank[q.type]) questionBank[q.type].push(q);
+  } catch (e) { console.warn('[Bank] Save failed:', e); }
+  return q;
+}
+
+// mode: 'unsolved' | 'superset' | 'review'
+function drawFromBank(type, difficulty, count, mode = 'unsolved') {
   let pool = questionBank[type] || [];
   if (difficulty !== 'mixed') pool = pool.filter(q => q.difficulty === difficulty);
-  // Shuffle
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+
+  if (mode === 'superset') {
+    pool = pool.filter(q => userSupersetIds.has(q.id));
+  } else if (mode === 'review') {
+    pool = pool.filter(q => userSolvedIds.has(q.id));
+  } else {
+    pool = pool.filter(q => !userSolvedIds.has(q.id));
+  }
+
+  return [...pool].sort(() => Math.random() - 0.5).slice(0, count);
 }
- 
-// Background prefill: ONE single API call requesting BATCH_SIZE questions at once.
-// Only fires if the bank is genuinely below LOW_WATERMARK for that type+difficulty.
-const BANK_LOW_WATERMARK = 8;   // only top up when below this
-const BANK_BATCH_SIZE    = 5;   // ask Gemini for this many in one call
-const BANK_REFILL_COOLDOWN_MS = 60_000; // never fire more than once per minute globally
-let   _lastPrefillAt = 0;
 
-async function prefillBank(type, difficulty, _ignored) {
-  // Hard-gate: never fire more than once per minute (prevents cascading on tab focus)
+function getUnsolvedCount(type, difficulty) {
+  let pool = questionBank[type] || [];
+  if (difficulty !== 'mixed') pool = pool.filter(q => q.difficulty === difficulty);
+  return pool.filter(q => !userSolvedIds.has(q.id)).length;
+}
+
+function getSupersetCount(type) {
+  return (questionBank[type] || []).filter(q => userSupersetIds.has(q.id)).length;
+}
+
+// Helper kept for backward compat (some callers use getBankPool)
+function getBankPool(type, difficulty) {
+  let pool = questionBank[type] || [];
+  if (difficulty !== 'mixed') pool = pool.filter(q => q.difficulty === difficulty);
+  return pool;
+}
+
+async function prefillBank(type, difficulty) {
   const now = Date.now();
-  if (now - _lastPrefillAt < BANK_REFILL_COOLDOWN_MS) {
-    console.log('[Bank] Skipping prefill — cooldown active');
+  if (now - _lastPrefillAt < BANK_REFILL_COOLDOWN) {
+    console.log('[Bank] Prefill skipped — cooldown active');
     return;
   }
-
-  // Check if bank actually needs filling
-  const pool = getBankPool(type, difficulty);
-  if (pool.length >= BANK_LOW_WATERMARK) {
-    console.log(`[Bank] ${type}/${difficulty} has ${pool.length} questions — no prefill needed`);
+  const unsolvedCount = getUnsolvedCount(type, difficulty);
+  if (unsolvedCount >= BANK_LOW_WATERMARK) {
+    console.log(`[Bank] ${type}/${difficulty} has ${unsolvedCount} unsolved — no refill needed`);
     return;
   }
-
   _lastPrefillAt = now;
-  const needed = BANK_BATCH_SIZE;
-  console.log(`[Bank] Prefilling ${needed} ${type}/${difficulty} questions in ONE call`);
-
-  const vocabWords = groups.flatMap(g => g.words.map(w => w.w)).slice(0, 60);
-  // For RC, request fewer passages (each yields ~3 questions)
-  const fetchCount = type === 'rc' ? Math.max(1, Math.ceil(needed / 3)) : needed;
   const actualDiff = difficulty === 'mixed' ? 'medium' : difficulty;
+  const fetchCount = type === 'rc' ? Math.max(1, Math.ceil(BANK_BATCH_SIZE / 3)) : BANK_BATCH_SIZE;
+  const vocabWords = groups.flatMap(g => g.words.map(w => w.w)).slice(0, 60);
 
+  console.log(`[Bank] Prefilling ${BANK_BATCH_SIZE} ${type}/${difficulty} into shared bank…`);
   try {
     const res = await fetch('/api/generate-question', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type, difficulty: actualDiff, vocabWords, count: fetchCount }),
     });
-
-    if (res.status === 429) {
-      console.warn('[Bank] Rate limited — will retry after cooldown');
-      return;
-    }
-    if (!res.ok) { console.warn('[Bank] Prefill failed:', res.status); return; }
+    if (res.status === 429) { console.warn('[Bank] Rate limited'); return; }
+    if (!res.ok) { console.warn('[Bank] Prefill HTTP error:', res.status); return; }
 
     const data = await res.json();
     let qs = data.questions || [];
-    if (type === 'rc') qs = flattenRCQuestions(qs, needed);
+    if (type === 'rc') qs = flattenRCQuestions(qs, BANK_BATCH_SIZE);
 
-    for (const q of qs) {
-      q.source    = 'ai';
-      q.createdAt = new Date().toISOString();
-      await saveQuestionToBank(q);
-    }
-    console.log(`[Bank] Added ${qs.length} questions to bank`);
-  } catch (e) {
-    console.warn('[Bank] Prefill error (silent):', e);
-  }
+    for (const q of qs) { q.source = 'ai'; await saveQuestionToBank(q); }
+    console.log(`[Bank] Added ${qs.length} to shared bank. New unsolved: ${getUnsolvedCount(type, difficulty)}`);
+    updateBankStats();
+  } catch (e) { console.warn('[Bank] Prefill error:', e); }
 }
+
  
 const VERBAL_TIME_PER_Q  = 120;
 const VERBAL_TIMED_TOTAL = { 5: 600, 10: 1200, 15: 1800, 20: 2400 };
@@ -1519,7 +1587,32 @@ function initVerbalHub() {
   setupPillGroup('mode-pills',   val => { verbalState.mode = val; });
   setupPillGroup('qcount-pills', val => { verbalState.qcount = parseInt(val); });
  
-  document.getElementById('verbal-start-btn').addEventListener('click', startVerbalSession);
+  document.getElementById('verbal-start-btn').addEventListener('click', () => {
+    verbalState.drawMode = 'unsolved';
+    startVerbalSession();
+  });
+
+  // Superset practice button
+  const superBtn = document.getElementById('verbal-superset-btn');
+  if (superBtn) {
+    superBtn.addEventListener('click', () => {
+      if (!verbalState.selectedType) { showToast('Select a question type first', 'error'); return; }
+      const count = getSupersetCount(verbalState.selectedType);
+      if (count === 0) { showToast('Your superset is empty — mark hard questions with ⭐ during practice', 'info'); return; }
+      verbalState.drawMode = 'superset';
+      startVerbalSession();
+    });
+  }
+
+  // Review solved button
+  const reviewBtn = document.getElementById('verbal-review-btn');
+  if (reviewBtn) {
+    reviewBtn.addEventListener('click', () => {
+      if (!verbalState.selectedType) { showToast('Select a question type first', 'error'); return; }
+      verbalState.drawMode = 'review';
+      startVerbalSession();
+    });
+  }
  
   // Manage questions button
   const manageBtn = document.getElementById('manage-questions-btn');
@@ -1534,11 +1627,18 @@ function updateBankStats() {
   if (!el) return;
   const type = verbalState.selectedType;
   if (!type) { el.textContent = ''; return; }
-  let pool = questionBank[type] || [];
-  if (verbalState.difficulty !== 'mixed') pool = pool.filter(q => q.difficulty === verbalState.difficulty);
-  const ai  = pool.filter(q => q.source !== 'manual').length;
-  const man = pool.filter(q => q.source === 'manual').length;
-  el.innerHTML = `<span style="color:var(--muted)">Bank: </span><span style="color:var(--text-2)">${pool.length} questions</span> <span style="color:var(--muted);font-size:10px">(${ai} AI · ${man} manual)</span>`;
+
+  const difficulty = verbalState.difficulty || 'mixed';
+  const unsolved   = getUnsolvedCount(type, difficulty);
+  const total      = getBankPool(type, difficulty).length;
+  const solved     = total - unsolved;
+  const superCount = getSupersetCount(type);
+
+  el.innerHTML = `
+    <span style="color:var(--muted)">Unsolved: </span><span style="color:var(--text-2)">${unsolved}</span>
+    <span style="color:var(--muted);margin-left:10px">Solved: </span><span style="color:var(--green-text)">${solved}</span>
+    <span style="color:var(--muted);margin-left:10px">⭐ Superset: </span><span style="color:var(--yellow-text)">${superCount}</span>
+    <span style="color:var(--muted);font-size:10px;margin-left:10px">(${total} total in shared bank)</span>`;
 }
  
 function setupPillGroup(containerId, onChange) {
@@ -1581,6 +1681,7 @@ async function startVerbalSession() {
   verbalState.sessionStart  = Date.now();
   verbalState.paused        = false;
   verbalState.totalSeconds  = mode === 'timed' ? (VERBAL_TIMED_TOTAL[qcount] || qcount * 120) : 0;
+  verbalState.drawMode      = verbalState.drawMode || 'unsolved'; // set by hub buttons
  
   showVerbalScreen('session');
   setupSessionControls();
@@ -1599,31 +1700,34 @@ function getBankPool(type, difficulty) {
 }
 
 async function loadSessionQuestions() {
-  const { selectedType, difficulty, qcount } = verbalState;
+  const { selectedType, difficulty, qcount, mode: sessionMode } = verbalState;
+  const drawMode = verbalState.drawMode || 'unsolved'; // 'unsolved' | 'superset' | 'review'
   showLoading(true);
 
-  // 1. Draw from local bank first (always free, instant)
-  let drawn = drawFromBank(selectedType, difficulty, qcount);
-  console.log(`[Session] Drew ${drawn.length}/${qcount} from bank`);
+  // 1. Draw from bank based on mode
+  let drawn = drawFromBank(selectedType, difficulty, qcount, drawMode);
+  console.log(`[Session] Drew ${drawn.length}/${qcount} from bank (mode: ${drawMode})`);
 
-  // 2. Only if bank is genuinely empty (not just low), fire ONE API call
-  if (drawn.length === 0) {
-    console.log('[Session] Bank empty — fetching from Gemini (1 call)');
-    const fresh = await fetchFreshQuestions(selectedType, difficulty, Math.min(qcount, BANK_BATCH_SIZE));
-    fresh.forEach(q => { q.source = 'ai'; q.createdAt = new Date().toISOString(); saveQuestionToBank(q); });
-    drawn = fresh.slice(0, qcount);
-    _lastPrefillAt = Date.now(); // record so background prefill doesn't double-fire
+  // 2. Only fetch from Gemini if genuinely empty and mode is 'unsolved'
+  if (drawn.length === 0 && drawMode === 'unsolved') {
+    console.log('[Session] Bank empty — fetching from Gemini');
+    const fresh = await fetchFreshQuestions(selectedType, difficulty, BANK_BATCH_SIZE);
+    for (const q of fresh) { q.source = 'ai'; await saveQuestionToBank(q); }
+    drawn = drawFromBank(selectedType, difficulty, qcount, 'unsolved');
+    _lastPrefillAt = Date.now();
   }
 
-  // 3. Pad with fallbacks if still short (don't call API again)
+  // 3. Pad with fallbacks if still short (no extra API calls)
   while (drawn.length < qcount) {
     drawn.push(makeFallbackQuestion(selectedType, difficulty, drawn.length));
   }
 
   verbalState.questions = drawn;
 
-  // 4. Schedule a background top-up ONLY if bank is low — delayed 5s, after session starts
-  setTimeout(() => prefillBank(selectedType, difficulty), 5000);
+  // 4. Schedule background refill only for unsolved sessions
+  if (drawMode === 'unsolved') {
+    setTimeout(() => prefillBank(selectedType, difficulty), 8000);
+  }
 
   showLoading(false);
 }
@@ -1942,6 +2046,45 @@ function showExplanation(q, answer) {
   head.className = `vsess-exp-header ${answer.correct ? 'correct' : 'wrong'}`;
   head.textContent = answer.correct ? '✓ Correct!' : '✗ Incorrect';
   body.textContent = q.explanation || 'See the correct answer highlighted above.';
+
+  // Mark this question as solved immediately when explanation shows
+  const timeTaken = verbalState.questionSeconds || 0;
+  markQuestionSolved(q.id, answer.correct, timeTaken);
+
+  // Superset button — add/remove hard questions
+  let superBtn = document.getElementById('vsess-superset-btn');
+  if (!superBtn) {
+    superBtn = document.createElement('button');
+    superBtn.id = 'vsess-superset-btn';
+    superBtn.style.cssText = `
+      margin-top: 10px; font-family: var(--font-body); font-size: 11px; font-weight: 500;
+      padding: 5px 12px; border-radius: 5px; cursor: pointer;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--muted); transition: all 0.15s;`;
+    panel.appendChild(superBtn);
+  }
+
+  const inSuperset = userSupersetIds.has(q.id);
+  superBtn.textContent = inSuperset ? '⭐ In Superset — Click to Remove' : '☆ Add to Superset (Hard)';
+  superBtn.style.color  = inSuperset ? 'var(--yellow-text)' : 'var(--muted)';
+  superBtn.style.borderColor = inSuperset ? 'var(--yellow-text)' : 'var(--border)';
+
+  // Re-attach listener cleanly
+  const newBtn = superBtn.cloneNode(true);
+  superBtn.replaceWith(newBtn);
+  newBtn.addEventListener('click', async () => {
+    if (userSupersetIds.has(q.id)) {
+      await removeFromSuperset(q.id);
+      newBtn.textContent = '☆ Add to Superset (Hard)';
+      newBtn.style.color = 'var(--muted)';
+      newBtn.style.borderColor = 'var(--border)';
+    } else {
+      await addToSuperset(q.id);
+      newBtn.textContent = '⭐ In Superset — Click to Remove';
+      newBtn.style.color = 'var(--yellow-text)';
+      newBtn.style.borderColor = 'var(--yellow-text)';
+    }
+  });
 }
  
 function describeUserAnswer(q, answer) {
@@ -2089,26 +2232,39 @@ function setupSessionControls() {
 async function finishSession() {
   clearTimers();
   sessionControlsSetup = false;
- 
+
   const correct = verbalState.answers.filter(a => a.answered && a.correct).length;
   const total   = verbalState.answers.filter(a => a.answered).length;
   const elapsed = Math.floor((Date.now() - verbalState.sessionStart) / 1000);
- 
-  // Save to Firestore session history
+
+  // Mark any not-yet-marked questions as solved (exam mode skips per-question marking)
+  const perQTime = total > 0 ? Math.round(elapsed / total) : 60;
+  for (let i = 0; i < verbalState.questions.length; i++) {
+    const q = verbalState.questions[i];
+    const a = verbalState.answers[i];
+    if (a && a.answered && q && q.id && !q.id.startsWith('fallback_')) {
+      // markQuestionSolved is idempotent — safe to call even if already marked
+      await markQuestionSolved(q.id, a.correct, perQTime);
+    }
+  }
+
+  // Save session record to Firestore
   const sessionRecord = {
     type:       verbalState.selectedType,
     difficulty: verbalState.difficulty,
     mode:       verbalState.mode,
-    correct, total,
-    elapsed,
+    correct, total, elapsed,
     date: new Date().toISOString(),
   };
   verbalState.sessionHistory.unshift(sessionRecord);
-  verbalState.sessionHistory = verbalState.sessionHistory.slice(0, 20); // keep last 20
+  verbalState.sessionHistory = verbalState.sessionHistory.slice(0, 20);
   await saveVerbalHistory();
- 
+
   renderResults(correct, total, elapsed);
   showVerbalScreen('results');
+
+  // Trigger background bank refill after session ends
+  setTimeout(() => prefillBank(verbalState.selectedType, verbalState.difficulty), 3000);
 }
  
 async function saveVerbalHistory() {
