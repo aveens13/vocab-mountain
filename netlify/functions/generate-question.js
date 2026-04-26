@@ -28,7 +28,7 @@ exports.handler = async (event) => {
   if (!validDiffs.includes(difficulty)) return { statusCode: 400, body: JSON.stringify({ error: 'Invalid difficulty' }) };
   const safeCount = Math.min(Math.max(1, parseInt(count) || 5), 20);
 
-  const prompt = buildPrompt(type, difficulty, vocabWords || [], safeCount);
+  const prompt = buildPrompt(type, difficulty, [], safeCount);
 
   try {
     const geminiRes = await fetch(
