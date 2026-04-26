@@ -676,6 +676,7 @@ async function loadProgressFromFirestore() {
     }
 
     initVocabState(saved);
+    await loadVerbalHistory();
   } catch (e) {
     console.warn('Could not load progress:', e);
     initVocabState(null);
@@ -2022,12 +2023,4 @@ function renderVerbalHistory() {
       <span class="vhist-meta">${date} · ${formatTime(s.elapsed)}</span>`;
     list.appendChild(row);
   });
-}
-
-// Load verbal history when app starts
-const _origLoadProgress = loadProgressFromFirestore;
-// Patch to also load verbal history
-async function loadProgressFromFirestore() {
-  await _origLoadProgress.call(this);
-  await loadVerbalHistory();
 }
