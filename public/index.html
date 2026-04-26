@@ -621,6 +621,84 @@
   .vhist-score { font-weight: 600; color: var(--text); }
   .vhist-meta { color: var(--muted); margin-left: auto; font-family: var(--font-mono); font-size: 10px; }
 
+  /* ── Bank stats + manage row ── */
+  .verbal-bank-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px; gap: 12px; flex-wrap: wrap;
+  }
+  #bank-stats { font-family: var(--font-mono); font-size: 11px; }
+  #manage-questions-btn {
+    font-family: var(--font-mono); font-size: 10px; padding: 4px 12px;
+    border-radius: 5px; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--muted); cursor: pointer; transition: all 0.13s; white-space: nowrap;
+  }
+  #manage-questions-btn:hover { color: var(--text); border-color: var(--muted-hover); }
+
+  /* ── Manage panel ── */
+  #manage-panel {
+    display: none; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px 22px; margin-bottom: 24px;
+  }
+  .manage-panel-title {
+    font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 14px;
+  }
+  #bank-list { margin-bottom: 18px; max-height: 200px; overflow-y: auto; }
+  .bank-list-row {
+    display: flex; align-items: center; gap: 8px; padding: 7px 0;
+    border-bottom: 1px solid var(--border-soft); font-size: 12px;
+  }
+  .bank-list-badge {
+    font-family: var(--font-mono); font-size: 9px; padding: 1px 6px;
+    border-radius: 3px; flex-shrink: 0; text-transform: capitalize;
+    background: var(--surface-3); color: var(--muted); border: 1px solid var(--border);
+  }
+  .bank-list-badge.easy   { color: var(--green-text); border-color: var(--green-border); background: var(--green-bg); }
+  .bank-list-badge.medium { color: var(--yellow-text); border-color: var(--border); background: var(--surface-3); }
+  .bank-list-badge.hard   { color: var(--red-text); border-color: var(--red-border); background: var(--red-bg); }
+  .bank-list-source { font-size: 12px; flex-shrink: 0; }
+  .bank-list-preview { color: var(--text-2); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bank-list-del {
+    font-size: 10px; padding: 2px 7px; border-radius: 4px; cursor: pointer;
+    border: 1px solid transparent; background: transparent; color: var(--muted);
+    transition: all 0.13s; flex-shrink: 0;
+  }
+  .bank-list-del:hover { color: var(--red-text); border-color: var(--red-border); background: var(--red-bg); }
+
+  /* ── Manual add form ── */
+  .madd-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .madd-tab-btn {
+    font-family: var(--font-mono); font-size: 10px; padding: 6px 14px;
+    border: none; background: transparent; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.13s;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .madd-tab-btn.active { color: var(--notion-blue); border-bottom-color: var(--notion-blue); }
+  .madd-form { display: none; }
+  .madd-label {
+    font-family: var(--font-mono); font-size: 9px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 4px;
+  }
+  .madd-input, .madd-textarea, .madd-select {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; color: var(--text);
+    font-family: var(--font-body); font-size: 12px; outline: none;
+    transition: border-color 0.13s; box-sizing: border-box;
+  }
+  .madd-input:focus, .madd-textarea:focus { border-color: var(--notion-blue); }
+  .madd-textarea { min-height: 64px; resize: vertical; }
+  .madd-hint { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+  .madd-row { display: flex; gap: 10px; }
+  .madd-row .madd-field { flex: 1; }
+  .madd-field { margin-bottom: 10px; }
+  .madd-submit {
+    padding: 7px 16px; border-radius: 6px; border: none; cursor: pointer;
+    background: var(--notion-blue); color: #fff;
+    font-family: var(--font-body); font-size: 12px; font-weight: 600;
+    transition: opacity 0.13s; margin-top: 4px;
+  }
+  .madd-submit:hover { opacity: 0.85; }
+
   /* ── Session bar ── */
   .vsess-bar {
     position: sticky; top: 0; z-index: 50;
@@ -1027,6 +1105,116 @@
               <button class="vopt-pill" data-val="15">15</button>
               <button class="vopt-pill" data-val="20">20</button>
             </div>
+          </div>
+        </div>
+
+        <!-- Bank stats row -->
+        <div class="verbal-bank-row">
+          <div id="bank-stats"></div>
+          <button id="manage-questions-btn">⚙ Manage Questions</button>
+        </div>
+
+        <!-- Manage / manual add panel -->
+        <div id="manage-panel">
+          <div class="manage-panel-title">Question Bank</div>
+          <div id="bank-list"></div>
+
+          <div class="manage-panel-title" style="margin-top:4px">Add Question Manually</div>
+          <div class="madd-tabs">
+            <button class="madd-tab-btn active" data-type="tc">TC</button>
+            <button class="madd-tab-btn" data-type="se">SE</button>
+            <button class="madd-tab-btn" data-type="rc">RC</button>
+          </div>
+
+          <!-- TC form -->
+          <div class="madd-form" id="madd-form-tc" style="display:block">
+            <div class="madd-field">
+              <label class="madd-label">Passage (use (i)__________ for blank)</label>
+              <textarea class="madd-textarea" id="madd-tc-passage" placeholder="The scientist's work was so (i)__________ that few could follow it."></textarea>
+            </div>
+            <div class="madd-row">
+              <div class="madd-field">
+                <label class="madd-label">Choices (one per line, A–E)</label>
+                <textarea class="madd-textarea" id="madd-tc-choices" placeholder="abstruse&#10;lucid&#10;mundane&#10;derivative&#10;conventional"></textarea>
+              </div>
+              <div class="madd-field" style="max-width:120px">
+                <label class="madd-label">Correct (A–E)</label>
+                <input class="madd-input" id="madd-tc-correct" placeholder="A">
+                <label class="madd-label" style="margin-top:10px">Difficulty</label>
+                <select class="madd-select" id="madd-tc-diff">
+                  <option value="easy">Easy</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </div>
+            </div>
+            <div class="madd-field">
+              <label class="madd-label">Explanation (optional)</label>
+              <input class="madd-input" id="madd-tc-expl" placeholder="Why the correct answer works…">
+            </div>
+            <button class="madd-submit" id="madd-tc-submit">Save to Bank</button>
+          </div>
+
+          <!-- SE form -->
+          <div class="madd-form" id="madd-form-se">
+            <div class="madd-field">
+              <label class="madd-label">Sentence (use __________ for blank)</label>
+              <textarea class="madd-textarea" id="madd-se-passage" placeholder="The statesman was __________ in his approach to diplomacy."></textarea>
+            </div>
+            <div class="madd-row">
+              <div class="madd-field">
+                <label class="madd-label">6 Choices (one per line, A–F)</label>
+                <textarea class="madd-textarea" id="madd-se-choices" placeholder="pragmatic&#10;obstinate&#10;prudent&#10;reckless&#10;judicious&#10;capricious"></textarea>
+              </div>
+              <div class="madd-field" style="max-width:140px">
+                <label class="madd-label">2 Correct (e.g. A,C)</label>
+                <input class="madd-input" id="madd-se-correct" placeholder="A,C">
+                <label class="madd-label" style="margin-top:10px">Difficulty</label>
+                <select class="madd-select" id="madd-se-diff">
+                  <option value="easy">Easy</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </div>
+            </div>
+            <div class="madd-field">
+              <label class="madd-label">Explanation (optional)</label>
+              <input class="madd-input" id="madd-se-expl" placeholder="Why the pair works…">
+            </div>
+            <button class="madd-submit" id="madd-se-submit">Save to Bank</button>
+          </div>
+
+          <!-- RC form -->
+          <div class="madd-form" id="madd-form-rc">
+            <div class="madd-field">
+              <label class="madd-label">Passage</label>
+              <textarea class="madd-textarea" style="min-height:100px" id="madd-rc-passage" placeholder="The passage text…"></textarea>
+            </div>
+            <div class="madd-field">
+              <label class="madd-label">Question</label>
+              <input class="madd-input" id="madd-rc-qtext" placeholder="The primary purpose of this passage is to…">
+            </div>
+            <div class="madd-row">
+              <div class="madd-field">
+                <label class="madd-label">5 Choices (one per line, A–E)</label>
+                <textarea class="madd-textarea" id="madd-rc-choices" placeholder="argue that…&#10;describe how…&#10;compare…&#10;question…&#10;illustrate…"></textarea>
+              </div>
+              <div class="madd-field" style="max-width:120px">
+                <label class="madd-label">Correct (A–E)</label>
+                <input class="madd-input" id="madd-rc-correct" placeholder="B">
+                <label class="madd-label" style="margin-top:10px">Difficulty</label>
+                <select class="madd-select" id="madd-rc-diff">
+                  <option value="easy">Easy</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </div>
+            </div>
+            <div class="madd-field">
+              <label class="madd-label">Explanation (optional)</label>
+              <input class="madd-input" id="madd-rc-expl" placeholder="Why the correct answer works…">
+            </div>
+            <button class="madd-submit" id="madd-rc-submit">Save to Bank</button>
           </div>
         </div>
 

@@ -676,7 +676,6 @@ async function loadProgressFromFirestore() {
     }
 
     initVocabState(saved);
-    await loadVerbalHistory();
   } catch (e) {
     console.warn('Could not load progress:', e);
     initVocabState(null);
@@ -1380,8 +1379,85 @@ let verbalState = {
   sessionHistory: [], // saved to Firestore
 };
 
-const VERBAL_TIME_PER_Q  = 120; // 2 min per question (quiz mode display only)
-const VERBAL_TIMED_TOTAL = { 5: 600, 10: 1200, 15: 1800, 20: 2400 }; // timed mode
+// ── QUESTION BANK ─────────────────────────────────────────────────────────────
+// Questions are stored in Firestore: verbalBank/{uid}/questions/{docId}
+// Each question has: type, difficulty, ...question fields, source ('ai'|'manual'), createdAt
+let questionBank = { tc: [], se: [], rc: [] }; // loaded from Firestore
+let bankLoaded   = false;
+
+async function loadQuestionBank() {
+  if (!currentUser) return;
+  try {
+    const { collection, getDocs } = window._fs;
+    const snap = await getDocs(collection(db, 'verbalBank', currentUser.uid, 'questions'));
+    questionBank = { tc: [], se: [], rc: [] };
+    snap.forEach(d => {
+      const q = { id: d.id, ...d.data() };
+      if (questionBank[q.type]) questionBank[q.type].push(q);
+    });
+    bankLoaded = true;
+  } catch (e) { console.warn('Could not load question bank:', e); bankLoaded = true; }
+}
+
+async function saveQuestionToBank(q) {
+  if (!currentUser) return;
+  try {
+    const { collection, doc, setDoc } = window._fs;
+    const id = q.id || `${q.type}_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+    q.id = id;
+    await setDoc(doc(db, 'verbalBank', currentUser.uid, 'questions', id), q);
+    if (questionBank[q.type]) questionBank[q.type].push(q);
+    return q;
+  } catch (e) { console.warn('Could not save question:', e); }
+}
+
+async function deleteQuestionFromBank(q) {
+  if (!currentUser) return;
+  try {
+    const { doc, deleteDoc } = window._fs;
+    await deleteDoc(doc(db, 'verbalBank', currentUser.uid, 'questions', q.id));
+    questionBank[q.type] = questionBank[q.type].filter(x => x.id !== q.id);
+  } catch (e) { console.warn('Could not delete question:', e); }
+}
+
+// Draw N questions from bank for a session (shuffle, filter by type & difficulty)
+function drawFromBank(type, difficulty, count) {
+  let pool = questionBank[type] || [];
+  if (difficulty !== 'mixed') pool = pool.filter(q => q.difficulty === difficulty);
+  // Shuffle
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+}
+
+// Background prefill: silently generate questions and add to bank
+async function prefillBank(type, difficulty, howMany = 5) {
+  const vocabWords = groups.flatMap(g => g.words.map(w => w.w)).slice(0, 60);
+  const diffs = difficulty === 'mixed'
+    ? ['easy','medium','hard','medium','hard'].slice(0, howMany)
+    : Array(howMany).fill(difficulty);
+  const fetchCount = type === 'rc' ? Math.ceil(howMany / 3) : howMany;
+  for (let i = 0; i < fetchCount; i++) {
+    try {
+      const res = await fetch('/api/generate-question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, difficulty: diffs[i], vocabWords, count: 1 }),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      let qs = data.questions || [];
+      if (type === 'rc') qs = flattenRCQuestions(qs, 3);
+      for (const q of qs) {
+        q.source = 'ai';
+        q.createdAt = new Date().toISOString();
+        await saveQuestionToBank(q);
+      }
+    } catch(e) { /* silent */ }
+  }
+}
+
+const VERBAL_TIME_PER_Q  = 120;
+const VERBAL_TIMED_TOTAL = { 5: 600, 10: 1200, 15: 1800, 20: 2400 };
 
 // ── HUB INIT ──────────────────────────────────────────────────────────────────
 let verbalHubReady = false;
@@ -1389,26 +1465,45 @@ let verbalHubReady = false;
 function initVerbalHub() {
   showVerbalScreen('hub');
   renderVerbalHistory();
+  updateBankStats();
 
   if (verbalHubReady) return;
   verbalHubReady = true;
 
-  // Type cards
   document.querySelectorAll('.verbal-type-card').forEach(card => {
     card.addEventListener('click', () => {
       document.querySelectorAll('.verbal-type-card').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       verbalState.selectedType = card.dataset.vtype;
       updateStartBtn();
+      updateBankStats();
     });
   });
 
-  // Pill groups
-  setupPillGroup('diff-pills',   val => { verbalState.difficulty = val; });
+  setupPillGroup('diff-pills',   val => { verbalState.difficulty = val; updateBankStats(); });
   setupPillGroup('mode-pills',   val => { verbalState.mode = val; });
   setupPillGroup('qcount-pills', val => { verbalState.qcount = parseInt(val); });
 
   document.getElementById('verbal-start-btn').addEventListener('click', startVerbalSession);
+
+  // Manage questions button
+  const manageBtn = document.getElementById('manage-questions-btn');
+  if (manageBtn) manageBtn.addEventListener('click', () => openManagePanel());
+
+  // Manual add form
+  setupManualAddForm();
+}
+
+function updateBankStats() {
+  const el = document.getElementById('bank-stats');
+  if (!el) return;
+  const type = verbalState.selectedType;
+  if (!type) { el.textContent = ''; return; }
+  let pool = questionBank[type] || [];
+  if (verbalState.difficulty !== 'mixed') pool = pool.filter(q => q.difficulty === verbalState.difficulty);
+  const ai  = pool.filter(q => q.source !== 'manual').length;
+  const man = pool.filter(q => q.source === 'manual').length;
+  el.innerHTML = `<span style="color:var(--muted)">Bank: </span><span style="color:var(--text-2)">${pool.length} questions</span> <span style="color:var(--muted);font-size:10px">(${ai} AI · ${man} manual)</span>`;
 }
 
 function setupPillGroup(containerId, onChange) {
@@ -1457,63 +1552,62 @@ async function startVerbalSession() {
   renderProgressDots();
   startTimers();
 
-  // Pre-fetch all questions upfront (better UX than generating one at a time)
-  await fetchAllQuestions();
+  await loadSessionQuestions();
   renderCurrentQuestion();
 }
 
-async function fetchAllQuestions() {
+async function loadSessionQuestions() {
   const { selectedType, difficulty, qcount } = verbalState;
-
-  // Build vocab word list from user's groups for contextual questions
-  const vocabWords = groups.flatMap(g => g.words.map(w => w.w)).slice(0, 60);
-
-  // For RC, each "question" is actually a passage+questions set — fetch fewer passages
-  const fetchCount = selectedType === 'rc' ? Math.ceil(qcount / 3) : qcount;
-  const fetchDiff  = difficulty === 'mixed'
-    ? ['easy', 'medium', 'hard', 'medium', 'hard'].slice(0, fetchCount)
-    : Array(fetchCount).fill(difficulty);
-
   showLoading(true);
 
-  // Fetch in batches of 3 to stay within rate limits
+  // 1. Try to draw from the local bank first
+  let drawn = drawFromBank(selectedType, difficulty, qcount);
+
+  // 2. If bank is short, fetch the shortfall from Gemini directly
+  const needed = qcount - drawn.length;
+  if (needed > 0) {
+    const fresh = await fetchFreshQuestions(selectedType, difficulty, needed);
+    // Save new ones to bank in the background
+    fresh.forEach(q => { q.source = 'ai'; q.createdAt = new Date().toISOString(); saveQuestionToBank(q); });
+    drawn = [...drawn, ...fresh].slice(0, qcount);
+  }
+
+  // 3. Pad with fallbacks if still short
+  while (drawn.length < qcount) {
+    drawn.push(makeFallbackQuestion(selectedType, difficulty, drawn.length));
+  }
+
+  verbalState.questions = drawn;
+
+  // 4. Trigger a background prefill so next session has fresh questions
+  setTimeout(() => prefillBank(selectedType, difficulty, Math.max(5, qcount)), 2000);
+
+  showLoading(false);
+}
+
+async function fetchFreshQuestions(type, difficulty, count) {
+  const vocabWords = groups.flatMap(g => g.words.map(w => w.w)).slice(0, 60);
+  const fetchCount = type === 'rc' ? Math.ceil(count / 3) : count;
+  const diffs = difficulty === 'mixed'
+    ? ['easy','medium','hard','medium','hard'].slice(0, fetchCount)
+    : Array(fetchCount).fill(difficulty);
+
   const allQuestions = [];
   for (let i = 0; i < fetchCount; i++) {
     try {
       const res = await fetch('/api/generate-question', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type:       selectedType,
-          difficulty: fetchDiff[i],
-          vocabWords,
-          count: 1,
-        }),
+        body: JSON.stringify({ type, difficulty: diffs[i], vocabWords, count: 1 }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      if (data.questions && data.questions.length > 0) {
-        allQuestions.push(...data.questions);
-      }
+      if (data.questions?.length > 0) allQuestions.push(...data.questions);
     } catch (err) {
       console.error('Fetch question error:', err);
-      allQuestions.push(makeFallbackQuestion(selectedType, fetchDiff[i], i));
     }
   }
-
-  // For RC, flatten passage+questions into individual RC question items
-  if (selectedType === 'rc') {
-    verbalState.questions = flattenRCQuestions(allQuestions, qcount);
-  } else {
-    verbalState.questions = allQuestions.slice(0, qcount);
-  }
-
-  // Pad with fallbacks if Gemini returned fewer than expected
-  while (verbalState.questions.length < verbalState.qcount) {
-    verbalState.questions.push(makeFallbackQuestion(selectedType, difficulty, verbalState.questions.length));
-  }
-
-  showLoading(false);
+  return type === 'rc' ? flattenRCQuestions(allQuestions, count) : allQuestions.slice(0, count);
 }
 
 function flattenRCQuestions(passages, targetCount) {
@@ -1798,15 +1892,78 @@ function handleRCChoice(choiceLabel, q, answer) {
   renderCurrentQuestion();
 }
 
-// ── EXPLANATION ───────────────────────────────────────────────────────────────
-function showExplanation(q, answer) {
+// ── EXPLANATION — AI-POWERED ──────────────────────────────────────────────────
+async function showExplanation(q, answer) {
   const panel = document.getElementById('vsess-explanation');
   const head  = document.getElementById('vsess-exp-result');
   const body  = document.getElementById('vsess-exp-text');
   panel.style.display = 'block';
   head.className = `vsess-exp-header ${answer.correct ? 'correct' : 'wrong'}`;
   head.textContent = answer.correct ? '✓ Correct!' : '✗ Incorrect';
-  body.textContent = q.explanation || '';
+
+  // Show static explanation immediately as placeholder
+  body.textContent = q.explanation || 'Loading personalized feedback…';
+  if (!answer.correct || true) { // always try AI reasoning
+    body.innerHTML = `<span style="color:var(--muted);font-style:italic">Generating feedback…</span>`;
+    try {
+      const userAnswerDesc = describeUserAnswer(q, answer);
+      const prompt = buildReasoningPrompt(q, answer, userAnswerDesc);
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const data = await res.json();
+      const text = data.content?.map(c => c.text || '').join('') || q.explanation || '';
+      body.textContent = text;
+    } catch(e) {
+      body.textContent = q.explanation || 'See correct answer above.';
+    }
+  }
+}
+
+function describeUserAnswer(q, answer) {
+  if (q.type === 'tc') {
+    if (!answer.userAnswer) return 'No answer selected.';
+    return q.blanks.map((blank, i) => {
+      const pick = answer.userAnswer[i];
+      const pickText = blank.choices.find(c => c.label === pick)?.text || pick;
+      const corrText = blank.choices.find(c => c.label === blank.correct)?.text || blank.correct;
+      return `Blank ${i+1}: selected "${pickText}" (correct: "${corrText}")`;
+    }).join('; ');
+  }
+  if (q.type === 'se') {
+    const picks = (answer.userAnswer || []).map(l => q.choices.find(c => c.label === l)?.text || l);
+    const corrects = q.correct.map(l => q.choices.find(c => c.label === l)?.text || l);
+    return `Selected: ${picks.join(', ')} | Correct: ${corrects.join(', ')}`;
+  }
+  if (q.type === 'rc') {
+    const pick = q.choices.find(c => c.label === answer.userAnswer)?.text || answer.userAnswer;
+    const corr = q.choices.find(c => c.label === q.correct)?.text || q.correct;
+    return `Selected: "${pick}" | Correct: "${corr}"`;
+  }
+  return '';
+}
+
+function buildReasoningPrompt(q, answer, userAnswerDesc) {
+  const typeNames = { tc: 'Text Completion', se: 'Sentence Equivalence', rc: 'Reading Comprehension' };
+  const verdict = answer.correct ? 'CORRECT' : 'INCORRECT';
+  let qText = '';
+  if (q.type === 'tc') qText = `Passage: "${q.passage}"\nChoices per blank: ${JSON.stringify(q.blanks.map(b => ({ label: b.label, choices: b.choices.map(c=>c.text), correct: b.choices.find(c=>c.label===b.correct)?.text })))}`;
+  if (q.type === 'se') qText = `Sentence: "${q.passage}"\nChoices: ${q.choices.map(c=>`${c.label}: ${c.text}`).join(', ')}\nCorrect pair: ${q.correct.join(' & ')}`;
+  if (q.type === 'rc') qText = `Passage: "${(q.passage||'').slice(0,400)}…"\nQuestion: "${q.text}"\nChoices: ${q.choices.map(c=>`${c.label}: ${c.text}`).join(', ')}\nCorrect: ${q.correct}`;
+
+  return `You are a GRE tutor giving concise, personalized feedback. The student answered a ${typeNames[q.type]} question ${verdict}.
+
+${qText}
+
+Student's answer: ${userAnswerDesc}
+
+Give 2-4 sentences of direct, personalized feedback. If wrong: explain WHY their choice was incorrect AND why the correct answer works. If right: briefly confirm their reasoning and add one insight about the word/concept. Be encouraging but precise. No preamble, just the feedback.`;
 }
 
 // ── PROGRESS DOTS ─────────────────────────────────────────────────────────────
@@ -2023,4 +2180,127 @@ function renderVerbalHistory() {
       <span class="vhist-meta">${date} · ${formatTime(s.elapsed)}</span>`;
     list.appendChild(row);
   });
+}
+
+// ── MANAGE QUESTIONS PANEL ────────────────────────────────────────────────────
+function openManagePanel() {
+  const panel = document.getElementById('manage-panel');
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  renderBankList();
+}
+
+function renderBankList() {
+  const type = verbalState.selectedType || 'tc';
+  const list = document.getElementById('bank-list');
+  if (!list) return;
+  const qs = questionBank[type] || [];
+  if (qs.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px 0">No questions in bank for this type yet.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  qs.forEach(q => {
+    const row = document.createElement('div');
+    row.className = 'bank-list-row';
+    const preview = (q.passage || q.text || '').slice(0, 80) + '…';
+    row.innerHTML = `
+      <span class="bank-list-badge ${q.difficulty}">${q.difficulty}</span>
+      <span class="bank-list-source">${q.source === 'manual' ? '✏️' : '🤖'}</span>
+      <span class="bank-list-preview">${preview}</span>
+      <button class="bank-list-del" data-id="${q.id}" data-type="${q.type}">✕</button>`;
+    row.querySelector('.bank-list-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = e.target.dataset.id;
+      const t  = e.target.dataset.type;
+      const toDelete = questionBank[t].find(x => x.id === id);
+      if (toDelete) { await deleteQuestionFromBank(toDelete); renderBankList(); updateBankStats(); }
+    });
+    list.appendChild(row);
+  });
+}
+
+function setupManualAddForm() {
+  const tabBtns = document.querySelectorAll('.madd-tab-btn');
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.madd-form').forEach(f => f.style.display = 'none');
+      const formEl = document.getElementById(`madd-form-${btn.dataset.type}`);
+      if (formEl) formEl.style.display = 'block';
+    });
+  });
+
+  // TC manual add
+  const tcBtn = document.getElementById('madd-tc-submit');
+  if (tcBtn) tcBtn.addEventListener('click', async () => {
+    const passage   = document.getElementById('madd-tc-passage').value.trim();
+    const choice1   = document.getElementById('madd-tc-choices').value.trim();
+    const correct   = document.getElementById('madd-tc-correct').value.trim().toUpperCase();
+    const expl      = document.getElementById('madd-tc-expl').value.trim();
+    const diff      = document.getElementById('madd-tc-diff').value;
+    if (!passage || !choice1 || !correct) { alert('Fill in passage, choices, and correct answer.'); return; }
+    const choiceLines = choice1.split('\n').map(l => l.trim()).filter(Boolean);
+    const choices = choiceLines.map((text, i) => ({ label: String.fromCharCode(65+i), text }));
+    const q = {
+      type: 'tc', difficulty: diff, source: 'manual', numBlanks: 1,
+      passage, explanation: expl,
+      blanks: [{ label: 'Blank (i)', choices, correct }],
+    };
+    await saveQuestionToBank(q);
+    renderBankList(); updateBankStats();
+    document.getElementById('madd-tc-passage').value = '';
+    document.getElementById('madd-tc-choices').value = '';
+    document.getElementById('madd-tc-correct').value = '';
+    document.getElementById('madd-tc-expl').value = '';
+    alert('Question saved to bank!');
+  });
+
+  // SE manual add
+  const seBtn = document.getElementById('madd-se-submit');
+  if (seBtn) seBtn.addEventListener('click', async () => {
+    const passage = document.getElementById('madd-se-passage').value.trim();
+    const choices6 = document.getElementById('madd-se-choices').value.trim();
+    const correct  = document.getElementById('madd-se-correct').value.trim().toUpperCase().split(/[,\s]+/).filter(Boolean);
+    const expl     = document.getElementById('madd-se-expl').value.trim();
+    const diff     = document.getElementById('madd-se-diff').value;
+    if (!passage || !choices6 || correct.length !== 2) { alert('Need passage, 6 choices (one per line), and exactly 2 correct labels e.g. "A,C"'); return; }
+    const choiceLines = choices6.split('\n').map(l => l.trim()).filter(Boolean);
+    const choices = choiceLines.slice(0, 6).map((text, i) => ({ label: String.fromCharCode(65+i), text }));
+    const q = { type: 'se', difficulty: diff, source: 'manual', passage, choices, correct, explanation: expl };
+    await saveQuestionToBank(q);
+    renderBankList(); updateBankStats();
+    alert('Question saved to bank!');
+  });
+
+  // RC manual add
+  const rcBtn = document.getElementById('madd-rc-submit');
+  if (rcBtn) rcBtn.addEventListener('click', async () => {
+    const passage  = document.getElementById('madd-rc-passage').value.trim();
+    const qtext    = document.getElementById('madd-rc-qtext').value.trim();
+    const choices5 = document.getElementById('madd-rc-choices').value.trim();
+    const correct  = document.getElementById('madd-rc-correct').value.trim().toUpperCase();
+    const expl     = document.getElementById('madd-rc-expl').value.trim();
+    const diff     = document.getElementById('madd-rc-diff').value;
+    if (!passage || !qtext || !choices5 || !correct) { alert('Fill in all fields.'); return; }
+    const choiceLines = choices5.split('\n').map(l => l.trim()).filter(Boolean);
+    const choices = choiceLines.slice(0, 5).map((text, i) => ({ label: String.fromCharCode(65+i), text }));
+    const q = {
+      type: 'rc', difficulty: diff, source: 'manual',
+      passage, text: qtext, qtype: 'custom', choices, correct, explanation: expl,
+    };
+    await saveQuestionToBank(q);
+    renderBankList(); updateBankStats();
+    alert('Question saved to bank!');
+  });
+}
+
+// ── PATCH: load question bank alongside progress ───────────────────────────────
+const _origLoadProgress2 = loadProgressFromFirestore;
+async function loadProgressFromFirestore() {
+  await _origLoadProgress2();
+  await loadVerbalHistory();
+  await loadQuestionBank();
+  updateBankStats();
 }
