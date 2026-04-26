@@ -950,6 +950,15 @@
   }
   .vres-review-verdict .correct { color: var(--green-text); }
   .vres-review-verdict .wrong   { color: var(--red-text); }
+  .vres-ai-feedback-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; padding: 16px 18px; margin-bottom: 24px;
+  }
+  .vres-ai-feedback-label {
+    font-family: var(--font-mono); font-size: 9px; color: var(--notion-blue);
+    text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;
+  }
+  .vres-ai-feedback-text { font-size: 13px; color: var(--text-2); line-height: 1.7; }
   .vres-actions { display: flex; gap: 12px; justify-content: center; }
   .vres-btn {
     font-family: var(--font-body); font-size: 13px; font-weight: 600;
@@ -1293,6 +1302,10 @@
         </div>
         <div class="vres-stats" id="vres-stats"></div>
         <div class="vres-review" id="vres-review"></div>
+        <div class="vres-ai-feedback-box">
+          <div class="vres-ai-feedback-label">✦ AI Tutor Feedback</div>
+          <div class="vres-ai-feedback-text" id="vres-ai-feedback"></div>
+        </div>
         <div class="vres-actions">
           <button class="vres-btn secondary" id="vres-back-hub">Back to Hub</button>
           <button class="vres-btn primary" id="vres-retry">Try Again</button>
