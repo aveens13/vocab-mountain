@@ -24,23 +24,23 @@ exports.handler = async (event) => {
   // Validate
   const validTypes = ['tc', 'se', 'rc'];
   const validDiffs = ['easy', 'medium', 'hard'];
-  if (!validTypes.includes(type)) return { statusCode: 400, body: JSON.stringify({ error: 'Invalid type' }) };
+  if (!validTypes.includes(type))  return { statusCode: 400, body: JSON.stringify({ error: 'Invalid type' }) };
   if (!validDiffs.includes(difficulty)) return { statusCode: 400, body: JSON.stringify({ error: 'Invalid difficulty' }) };
+  const safeCount = Math.min(Math.max(1, parseInt(count) || 1), 5); // clamp 1–5
 
-  const prompt = buildPrompt(type, difficulty, vocabWords || [], count);
+  const prompt = buildPrompt(type, difficulty, vocabWords || [], safeCount);
 
   try {
     const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.8,
-            maxOutputTokens: 2048,
-            stopSequences: ["```"],
+            temperature: 0.85,
+            maxOutputTokens: 8192,
           },
         }),
       }
@@ -49,6 +49,10 @@ exports.handler = async (event) => {
     if (!geminiRes.ok) {
       const err = await geminiRes.text();
       console.error('Gemini error:', err);
+      // Pass 429 through so the frontend knows to back off
+      if (geminiRes.status === 429) {
+        return { statusCode: 429, body: JSON.stringify({ error: 'Rate limit hit — using fallback questions', rateLimited: true }) };
+      }
       return { statusCode: 502, body: JSON.stringify({ error: 'Gemini API error', detail: err }) };
     }
 

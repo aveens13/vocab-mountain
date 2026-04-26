@@ -1432,30 +1432,62 @@ function drawFromBank(type, difficulty, count) {
   return shuffled.slice(0, count);
 }
  
-// Background prefill: silently generate questions and add to bank
-async function prefillBank(type, difficulty, howMany = 5) {
+// Background prefill: ONE single API call requesting BATCH_SIZE questions at once.
+// Only fires if the bank is genuinely below LOW_WATERMARK for that type+difficulty.
+const BANK_LOW_WATERMARK = 8;   // only top up when below this
+const BANK_BATCH_SIZE    = 5;   // ask Gemini for this many in one call
+const BANK_REFILL_COOLDOWN_MS = 60_000; // never fire more than once per minute globally
+let   _lastPrefillAt = 0;
+
+async function prefillBank(type, difficulty, _ignored) {
+  // Hard-gate: never fire more than once per minute (prevents cascading on tab focus)
+  const now = Date.now();
+  if (now - _lastPrefillAt < BANK_REFILL_COOLDOWN_MS) {
+    console.log('[Bank] Skipping prefill — cooldown active');
+    return;
+  }
+
+  // Check if bank actually needs filling
+  const pool = getBankPool(type, difficulty);
+  if (pool.length >= BANK_LOW_WATERMARK) {
+    console.log(`[Bank] ${type}/${difficulty} has ${pool.length} questions — no prefill needed`);
+    return;
+  }
+
+  _lastPrefillAt = now;
+  const needed = BANK_BATCH_SIZE;
+  console.log(`[Bank] Prefilling ${needed} ${type}/${difficulty} questions in ONE call`);
+
   const vocabWords = groups.flatMap(g => g.words.map(w => w.w)).slice(0, 60);
-  const diffs = difficulty === 'mixed'
-    ? ['easy','medium','hard','medium','hard'].slice(0, howMany)
-    : Array(howMany).fill(difficulty);
-  const fetchCount = type === 'rc' ? Math.ceil(howMany / 3) : howMany;
-  for (let i = 0; i < fetchCount; i++) {
-    try {
-      const res = await fetch('/api/generate-question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, difficulty: diffs[i], vocabWords, count: 1 }),
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      let qs = data.questions || [];
-      if (type === 'rc') qs = flattenRCQuestions(qs, 3);
-      for (const q of qs) {
-        q.source = 'ai';
-        q.createdAt = new Date().toISOString();
-        await saveQuestionToBank(q);
-      }
-    } catch(e) { /* silent */ }
+  // For RC, request fewer passages (each yields ~3 questions)
+  const fetchCount = type === 'rc' ? Math.max(1, Math.ceil(needed / 3)) : needed;
+  const actualDiff = difficulty === 'mixed' ? 'medium' : difficulty;
+
+  try {
+    const res = await fetch('/api/generate-question', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, difficulty: actualDiff, vocabWords, count: fetchCount }),
+    });
+
+    if (res.status === 429) {
+      console.warn('[Bank] Rate limited — will retry after cooldown');
+      return;
+    }
+    if (!res.ok) { console.warn('[Bank] Prefill failed:', res.status); return; }
+
+    const data = await res.json();
+    let qs = data.questions || [];
+    if (type === 'rc') qs = flattenRCQuestions(qs, needed);
+
+    for (const q of qs) {
+      q.source    = 'ai';
+      q.createdAt = new Date().toISOString();
+      await saveQuestionToBank(q);
+    }
+    console.log(`[Bank] Added ${qs.length} questions to bank`);
+  } catch (e) {
+    console.warn('[Bank] Prefill error (silent):', e);
   }
 }
  
@@ -1559,58 +1591,64 @@ async function startVerbalSession() {
   renderCurrentQuestion();
 }
  
+// Helper: get the right pool slice from in-memory bank
+function getBankPool(type, difficulty) {
+  let pool = questionBank[type] || [];
+  if (difficulty !== 'mixed') pool = pool.filter(q => q.difficulty === difficulty);
+  return pool;
+}
+
 async function loadSessionQuestions() {
   const { selectedType, difficulty, qcount } = verbalState;
   showLoading(true);
- 
-  // 1. Try to draw from the local bank first
+
+  // 1. Draw from local bank first (always free, instant)
   let drawn = drawFromBank(selectedType, difficulty, qcount);
- 
-  // 2. If bank is short, fetch the shortfall from Gemini directly
-  const needed = qcount - drawn.length;
-  if (needed > 0) {
-    const fresh = await fetchFreshQuestions(selectedType, difficulty, needed);
-    // Save new ones to bank in the background
+  console.log(`[Session] Drew ${drawn.length}/${qcount} from bank`);
+
+  // 2. Only if bank is genuinely empty (not just low), fire ONE API call
+  if (drawn.length === 0) {
+    console.log('[Session] Bank empty — fetching from Gemini (1 call)');
+    const fresh = await fetchFreshQuestions(selectedType, difficulty, Math.min(qcount, BANK_BATCH_SIZE));
     fresh.forEach(q => { q.source = 'ai'; q.createdAt = new Date().toISOString(); saveQuestionToBank(q); });
-    drawn = [...drawn, ...fresh].slice(0, qcount);
+    drawn = fresh.slice(0, qcount);
+    _lastPrefillAt = Date.now(); // record so background prefill doesn't double-fire
   }
- 
-  // 3. Pad with fallbacks if still short
+
+  // 3. Pad with fallbacks if still short (don't call API again)
   while (drawn.length < qcount) {
     drawn.push(makeFallbackQuestion(selectedType, difficulty, drawn.length));
   }
- 
+
   verbalState.questions = drawn;
- 
-  // 4. Trigger a background prefill so next session has fresh questions
-  setTimeout(() => prefillBank(selectedType, difficulty, Math.max(5, qcount)), 2000);
- 
+
+  // 4. Schedule a background top-up ONLY if bank is low — delayed 5s, after session starts
+  setTimeout(() => prefillBank(selectedType, difficulty), 5000);
+
   showLoading(false);
 }
  
 async function fetchFreshQuestions(type, difficulty, count) {
   const vocabWords = groups.flatMap(g => g.words.map(w => w.w)).slice(0, 60);
-  const fetchCount = type === 'rc' ? Math.ceil(count / 3) : count;
-  const diffs = difficulty === 'mixed'
-    ? ['easy','medium','hard','medium','hard'].slice(0, fetchCount)
-    : Array(fetchCount).fill(difficulty);
- 
-  const allQuestions = [];
-  for (let i = 0; i < fetchCount; i++) {
-    try {
-      const res = await fetch('/api/generate-question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, difficulty: diffs[i], vocabWords, count: 1 }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.questions?.length > 0) allQuestions.push(...data.questions);
-    } catch (err) {
-      console.error('Fetch question error:', err);
-    }
+  const actualDiff = difficulty === 'mixed' ? 'medium' : difficulty;
+  // RC: request 1 passage (yields ~3 sub-questions), others: request count directly
+  const fetchCount = type === 'rc' ? Math.max(1, Math.ceil(count / 3)) : Math.min(count, 5);
+
+  try {
+    const res = await fetch('/api/generate-question', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, difficulty: actualDiff, vocabWords, count: fetchCount }),
+    });
+    if (res.status === 429) { console.warn('[Fetch] Rate limited'); return []; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const qs = data.questions || [];
+    return type === 'rc' ? flattenRCQuestions(qs, count) : qs.slice(0, count);
+  } catch (err) {
+    console.error('[Fetch] Error:', err);
+    return [];
   }
-  return type === 'rc' ? flattenRCQuestions(allQuestions, count) : allQuestions.slice(0, count);
 }
  
 function flattenRCQuestions(passages, targetCount) {
