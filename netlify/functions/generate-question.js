@@ -40,7 +40,7 @@ exports.handler = async (event) => {
           generationConfig: {
             temperature: 0.8,
             maxOutputTokens: 2048,
-            responseMimeType: 'application/json',
+            stopSequences: ["```"],
           },
         }),
       }
@@ -99,6 +99,7 @@ function buildPrompt(type, difficulty, vocabWords, count) {
 
 function buildTCPrompt(difficulty, diffDesc, wordHint, count) {
   return `You are a GRE test preparation expert. Generate ${count} Text Completion question(s) at ${difficulty} difficulty (${diffDesc}).
+  You MUST return valid JSON only. Do not include markdown, code fences, or explanations outside JSON. Ensure the response is strictly parseable using JSON.parse().
 
 ${wordHint}
 
@@ -140,6 +141,7 @@ function buildSEPrompt(difficulty, diffDesc, wordHint, count) {
   return `You are a GRE test preparation expert. Generate ${count} Sentence Equivalence question(s) at ${difficulty} difficulty (${diffDesc}).
 
 ${wordHint}
+You MUST return valid JSON only. Do not include markdown, code fences, or explanations outside JSON. Ensure the response is strictly parseable using JSON.parse().
 
 STRICT GRE SENTENCE EQUIVALENCE RULES:
 - Exactly ONE blank per question
@@ -176,6 +178,7 @@ function buildRCPrompt(difficulty, diffDesc, wordHint, count) {
     : '3-4 paragraphs (250-350 words)';
 
   return `You are a GRE test preparation expert. Generate ${count} Reading Comprehension passage(s) with questions at ${difficulty} difficulty (${diffDesc}).
+  You MUST return valid JSON only. Do not include markdown, code fences, or explanations outside JSON. Ensure the response is strictly parseable using JSON.parse().
 
 Passage length: ${passageLength}
 Topics: academic subjects — science, history, arts, social sciences, philosophy (avoid politics/religion)
