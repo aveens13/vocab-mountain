@@ -153,7 +153,7 @@ const RAW_GROUPS = [
     {w:"propagate",m:"spread or promote widely"},
     {w:"recourse",m:"a source of help or strategies used in a difficult situation"},
     {w:"refute",m:"prove to be wrong or false"},
-    {w:"regress",m:"prove to be wrong or false"},
+    {w:"regress",m:"1. go back to a previous state\n2. to return to a former, usually worse or less developed, state or condition"},
     {w:"repercussion",m:"an unintended consequence of an event or action"},
     {w:"replenish",m:"fill something up again"},
     {w:"vigilant",m:"keeping careful watch for dangers or difficulties"},
